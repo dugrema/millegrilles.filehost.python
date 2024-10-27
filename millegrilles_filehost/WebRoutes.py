@@ -2,9 +2,12 @@ import asyncio
 import logging
 
 from aiohttp import web
+from baseconv import base64
 
+from millegrilles_filehost import Constants
 from millegrilles_filehost.Context import FileHostContext
 from millegrilles_filehost.AuthenticationHandler import AuthenticationHandler
+from millegrilles_filehost.CookieUtilities import decrypt_cookie, Cookie, CookieExpired
 from millegrilles_filehost.HostingFileHandler import HostingFileHandler
 
 LOGGER = logging.getLogger(__name__)
@@ -42,7 +45,7 @@ class WebRouteHandler:
             web.get('/filehost/status', handler.handle_get),
 
             web.post('/filehost/authenticate', handler.authenticate),
-            web.get('/filehost/logout', handler.authenticate),
+            web.get('/filehost/logout', handler.logout),
 
             # /files
             web.get('/filehost/files', handler.get_file_list),
@@ -66,17 +69,40 @@ class WebRouteHandler:
             return await self.__handlers.authentication_handlers.logout(request)
 
     async def get_file_list(self, request: web.Request) -> web.Response:
-        async with self.__handlers.semaphore_web:
+        try:
+            cookie = await self.decrypt_cookie(request)
+        except (ValueError, CookieExpired):
             return web.HTTPUnauthorized()
+        async with self.__handlers.semaphore_web:
+            return await self.__handlers.hosting_file_handler.file_list(request, cookie)
 
     async def get_file(self, request: web.Request) -> web.Response:
+        try:
+            cookie = await self.decrypt_cookie(request)
+        except (ValueError, CookieExpired):
+            return web.HTTPUnauthorized()
         async with self.__handlers.semaphore_file_get:
             return web.HTTPUnauthorized()
 
     async def put_file(self, request: web.Request) -> web.Response:
+        try:
+            cookie = await self.decrypt_cookie(request)
+        except (ValueError, CookieExpired):
+            return web.HTTPUnauthorized()
         async with self.__handlers.semaphore_file_put:
             return web.HTTPUnauthorized()
 
     async def delete_file(self, request: web.Request) -> web.Response:
+        try:
+            cookie = await self.decrypt_cookie(request)
+        except (ValueError, CookieExpired):
+            return web.HTTPUnauthorized()
         async with self.__handlers.semaphore_web:
             return web.HTTPUnauthorized()
+
+    async def decrypt_cookie(self, request: web.Request) -> Cookie:
+        cookie = request.cookies.get(Constants.CONST_SESSION_COOKIE_NAME)
+        if cookie is None:
+            raise ValueError()
+        decrypted_cookie = decrypt_cookie(self.__context.secret_cookie_key, cookie)
+        return decrypted_cookie

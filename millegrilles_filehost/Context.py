@@ -2,6 +2,7 @@ import asyncio
 import logging
 import ssl
 import signal
+import secrets
 
 from ssl import SSLContext, VerifyMode
 
@@ -10,6 +11,9 @@ from typing import Optional
 from millegrilles_filehost.Configuration import FileHostConfiguration
 
 LOGGER = logging.getLogger(__name__)
+
+# Use random value for cookie key - will be overridden if configured to use external source
+SECRET_COOKIE_KEY = secrets.token_bytes(32)
 
 
 class StopListener:
@@ -33,6 +37,7 @@ class FileHostContext:
         self.__stop_event = asyncio.Event()
         self.__stop_listeners: list[StopListener] = list()
         self.__ssl_context = _load_ssl_context(configuration)
+        self.__secret_cookie_key = SECRET_COOKIE_KEY
 
         signal.signal(signal.SIGINT, self.exit_gracefully)
         signal.signal(signal.SIGTERM, self.exit_gracefully)
@@ -93,6 +98,10 @@ class FileHostContext:
     @property
     def ssl_context(self):
         return self.__ssl_context
+
+    @property
+    def secret_cookie_key(self):
+        return self.__secret_cookie_key
 
 
 def _load_ssl_context(configuration: FileHostConfiguration) -> ssl.SSLContext:

@@ -1,0 +1,1 @@
+CONST_SESSION_COOKIE_NAME = 'mgfilehost'
