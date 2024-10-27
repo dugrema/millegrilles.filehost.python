@@ -9,8 +9,6 @@ import gzip
 from aiohttp import web
 from typing import Optional, Union
 
-from gridfs.errors import FileExists
-
 from millegrilles_filehost.Context import FileHostContext
 from millegrilles_filehost.CookieUtilities import Cookie
 from millegrilles_messages.messages.Hachage import VerificateurHachage
@@ -120,7 +118,7 @@ class HostingFileHandler:
 
         try:
             path_fuuid, path_staging = prepare_dir(path_idmg, fuuid)
-        except FileExists:
+        except FileExistsError:
             return web.HTTPConflict()
         path_workfile = pathlib.Path(path_staging, fuuid + '.work')
 
@@ -195,7 +193,7 @@ def prepare_dir(path_idmg: pathlib.Path, fuuid: str) -> (pathlib.Path, pathlib.P
     path_fuuid = get_fuuid_dir(path_idmg, fuuid)
     if path_fuuid.exists():
         # The file already exists
-        raise FileExists()
+        raise FileExistsError()
 
     path_staging = pathlib.Path(path_idmg, 'staging')
 
