@@ -140,6 +140,29 @@ class HostingFileHandler:
 
         return web.HTTPOk()
 
+    async def delete_file(self, request: web.Request, cookie: Cookie) -> web.Response:
+        # This is a read-write function. Ensure proper roles/security level
+        if 'fichiers' not in cookie.get('roles'):
+            return web.HTTPForbidden()
+
+        idmg = cookie.idmg
+        fuuid = request.match_info['fuuid']
+
+        # Ensure idmg is already present (authorization should be rejected otherwise)
+        path_idmg = pathlib.Path(self.__context.configuration.dir_files, idmg)
+        if path_idmg.exists() is False:
+            self.__logger.error("Authorized access to non-existant IDMG %s, FAIL" % idmg)
+            return web.HTTPForbidden()
+
+        path_fuuid = get_fuuid_dir(path_idmg, fuuid)
+
+        try:
+            path_fuuid.unlink()
+        except FileNotFoundError:
+            return web.HTTPNotFound()
+
+        return web.HTTPOk()
+
     async def get_usage(self, request: web.Request, cookie: Cookie) -> Union[web.Response, web.StreamResponse]:
         # This is a read-write/admin level function. Ensure proper roles/security level
         if 'fichiers' not in cookie.get('roles'):
