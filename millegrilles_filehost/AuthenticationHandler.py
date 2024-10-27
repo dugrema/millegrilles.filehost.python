@@ -9,7 +9,7 @@ from typing import Optional
 from millegrilles_filehost import Constants
 from millegrilles_filehost.Context import FileHostContext
 from millegrilles_filehost.CookieUtilities import generate_cookie
-from millegrilles_messages.messages.ValidateurCertificats import ValidateurCertificatCache, ValidateurCertificat
+from millegrilles_messages.messages.ValidateurCertificats import ValidateurCertificatCache
 from millegrilles_messages.messages.ValidateurMessage import ValidateurMessage
 
 
@@ -42,6 +42,15 @@ class AuthenticationHandler:
                 pass  # Ok, within ~1 minute window
             else:
                 self.__logger.warning("Auth message outside the 5 minute window")
+                return web.HTTPForbidden()
+
+            try:
+                routing = auth_message['routage']
+                domain = routing['domaine']
+                action = routing['action']
+                if action != Constants.CONST_AUTHENTICATE_ACTION or domain != Constants.CONST_DOMAIN_NAME:
+                    return web.HTTPForbidden()
+            except KeyError:
                 return web.HTTPForbidden()
 
             enveloppe = await self.__validator.verifier(auth_message, utiliser_idmg_message=True)

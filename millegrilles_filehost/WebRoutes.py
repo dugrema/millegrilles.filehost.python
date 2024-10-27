@@ -2,7 +2,6 @@ import asyncio
 import logging
 
 from aiohttp import web
-from baseconv import base64
 
 from millegrilles_filehost import Constants
 from millegrilles_filehost.Context import FileHostContext

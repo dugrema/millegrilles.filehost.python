@@ -33,7 +33,7 @@ async def authenticate_1(formatteur: FormatteurMessageMilleGrilles, ca: Envelopp
     url_logout = 'https://thinkcentre1.maple.maceroc.com:3022/filehost/logout'
 
     auth_message = dict()
-    signed_message, message_id = formatteur.signer_message(Constantes.KIND_COMMANDE, auth_message, action='authenticate')
+    signed_message, message_id = formatteur.signer_message(Constantes.KIND_COMMANDE, auth_message, 'filehost', action='authenticate')
     ca_pem = ca.certificat_pem
     signed_message['millegrille'] = ca_pem
 
@@ -68,7 +68,7 @@ async def put_file_1(formatteur: FormatteurMessageMilleGrilles, ca: EnveloppeCer
     path_file = pathlib.Path('/tmp/zSEfXUA2kF29zvs68c5srJ5XoWptjkhQhaByymejUKe4zv9yZ6GHkGN94q5q2jnBPJv1znNt1ayEW3z8yT3Hm3C7Cmx3S9')
 
     auth_message = dict()
-    signed_message, message_id = formatteur.signer_message(Constantes.KIND_COMMANDE, auth_message, action='authenticate')
+    signed_message, message_id = formatteur.signer_message(Constantes.KIND_COMMANDE, auth_message, 'filehost', action='authenticate')
     ca_pem = ca.certificat_pem
     signed_message['millegrille'] = ca_pem
 
@@ -89,7 +89,7 @@ async def get_file_1(formatteur: FormatteurMessageMilleGrilles, ca: EnveloppeCer
 
     auth_message = dict()
     signed_message, message_id = formatteur.signer_message(Constantes.KIND_COMMANDE, auth_message,
-                                                           action='authenticate')
+                                                           'filehost', action='authenticate')
     ca_pem = ca.certificat_pem
     signed_message['millegrille'] = ca_pem
 
@@ -111,7 +111,7 @@ async def get_usage(formatteur: FormatteurMessageMilleGrilles, ca: EnveloppeCert
     url_get_usage = 'https://thinkcentre1.maple.maceroc.com:3022/filehost/usage'
 
     auth_message = dict()
-    signed_message, message_id = formatteur.signer_message(Constantes.KIND_COMMANDE, auth_message, action='authenticate')
+    signed_message, message_id = formatteur.signer_message(Constantes.KIND_COMMANDE, auth_message, 'filehost', action='authenticate')
     ca_pem = ca.certificat_pem
     signed_message['millegrille'] = ca_pem
 
@@ -149,11 +149,11 @@ async def main():
     # Create message signing resource
     signateur, formatteur, ca = load_formatter()
 
-    # await authenticate_1(formatteur, ca)
+    await authenticate_1(formatteur, ca)
     # await put_file_1(formatteur, ca)
     # await get_file_1(formatteur, ca)
     # await get_usage(formatteur, ca)
-    await delete_file_1(formatteur, ca)
+    # await delete_file_1(formatteur, ca)
 
 
 if __name__ == '__main__':

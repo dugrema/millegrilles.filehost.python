@@ -1,1 +1,3 @@
+CONST_DOMAIN_NAME = 'filehost'
 CONST_SESSION_COOKIE_NAME = 'mgfilehost'
+CONST_AUTHENTICATE_ACTION = 'authenticate'
