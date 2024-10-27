@@ -46,7 +46,7 @@ class FileHostContext:
         if loop is not None:
             loop.call_soon_threadsafe(self.__stop_event.set)
         else:
-            self.__logger.warning("Stopping witouth asyncio loop, may take time")
+            self.__logger.warning("Stopping without asyncio loop, may take time")
             self.__stop_event.set()
 
     async def run(self):

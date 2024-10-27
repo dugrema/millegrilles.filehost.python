@@ -4,14 +4,16 @@ import logging
 from aiohttp import web
 
 from millegrilles_filehost.Context import FileHostContext, StopListener
+from millegrilles_filehost.WebRoutes import Handlers, WebRouteHandler
 
 
 class WebServer(StopListener):
 
-    def __init__(self, context: FileHostContext):
+    def __init__(self, context: FileHostContext, handlers: Handlers):
         super().__init__()
         self.__logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
         self.__context = context
+        self.__handlers = handlers
 
         self.__web_app = web.Application()
 
@@ -23,8 +25,7 @@ class WebServer(StopListener):
     async def run(self):
         self.__logger.debug("Web server starting")
 
-        self._prepare_routes()
-
+        WebRouteHandler.prepare_routes(self.__context, self.__web_app, self.__handlers)
         runner = web.AppRunner(self.__web_app)
         await runner.setup()
 
@@ -37,14 +38,3 @@ class WebServer(StopListener):
         await self.__context.wait()
 
         self.__logger.info("Web server stopping")
-
-    def _prepare_routes(self):
-        self.__web_app.add_routes([
-            # /fichiers_transfert
-            web.get('/filehost', self.handle_get),
-        ])
-
-    async def handle_get(self, request: web.Request) -> web.Response:
-        self.__logger.debug("GET")
-        async with self.__web_sem:
-            return web.json_response({"ok": True})
