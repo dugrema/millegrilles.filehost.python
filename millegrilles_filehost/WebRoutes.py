@@ -82,7 +82,7 @@ class WebRouteHandler:
         except (ValueError, CookieExpired):
             return web.HTTPUnauthorized()
         async with self.__handlers.semaphore_file_get:
-            return web.HTTPUnauthorized()
+            return await self.__handlers.hosting_file_handler.get_file(request, cookie)
 
     async def put_file(self, request: web.Request) -> web.Response:
         try:
@@ -90,7 +90,7 @@ class WebRouteHandler:
         except (ValueError, CookieExpired):
             return web.HTTPUnauthorized()
         async with self.__handlers.semaphore_file_put:
-            return web.HTTPUnauthorized()
+            return await self.__handlers.hosting_file_handler.put_file(request, cookie)
 
     async def delete_file(self, request: web.Request) -> web.Response:
         try:
