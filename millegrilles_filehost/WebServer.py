@@ -1,3 +1,5 @@
+import asyncio
+
 from millegrilles_filehost.Context import FileHostContext, StopListener
 
 
@@ -8,8 +10,11 @@ class WebServer(StopListener):
         self.__context = context
 
     async def stop(self):
+        print("Stop callback")
         pass
 
     async def run(self):
         print("Running")
-        pass
+        await asyncio.sleep(2)
+        print("Done")
+        self.__context.stop()
