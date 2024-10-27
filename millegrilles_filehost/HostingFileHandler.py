@@ -1,5 +1,10 @@
+import asyncio
+import datetime
 import logging
+import json
+import math
 import pathlib
+import gzip
 
 from aiohttp import web
 from typing import Optional, Union
@@ -10,10 +15,9 @@ from millegrilles_filehost.Context import FileHostContext
 from millegrilles_filehost.CookieUtilities import Cookie
 from millegrilles_messages.messages.Hachage import VerificateurHachage
 
+CONST_CHUNK_SIZE = 64 * 1024        # 64kb
+CONST_REFRESH_LISTS = 3_600 * 12    # Every 12 hours
 
-CONST_CHUNK_SIZE = 64 * 1024
-
-# Path:
 
 class HostingFileHandler:
 
@@ -28,6 +32,7 @@ class HostingFileHandler:
 
     async def maintenance(self):
         self.__logger.debug("Maintenance cycle")
+        await asyncio.gather(self.__manage_file_list_thread())
 
     async def file_list(self, request: web.Request, cookie: Cookie) -> Union[web.Response, web.StreamResponse]:
         # This is a read-write/admin level function. Ensure proper roles/security level
@@ -42,9 +47,28 @@ class HostingFileHandler:
         response = web.StreamResponse(status=200)
         await response.prepare(request)
 
-        async for filename in iter_bucket_files(path_idmg):
-            filename_bytes = filename.encode('utf-8') + b'\n'
-            await response.write(filename_bytes)
+        path_filelist = pathlib.Path(path_idmg, 'list.txt.gz')
+        path_filelist_incremental = pathlib.Path(path_idmg, 'list_incremental.txt')
+
+        try:
+            with gzip.open(path_filelist, 'r') as fp:
+                while True:
+                    line = fp.readline(1024)
+                    if len(line) == 0:
+                        break
+                    await response.write(line)
+        except FileNotFoundError:
+            pass  # No files
+
+        try:
+            with open(path_filelist_incremental, 'rt') as fp:
+                while True:
+                    line = fp.readline(1024)
+                    if len(line) == 0:
+                        break
+                    await response.write(line.encode('utf-8'))
+        except FileNotFoundError:
+            pass  # No files
 
         await response.write_eof()
         return response
@@ -92,6 +116,8 @@ class HostingFileHandler:
             self.__logger.error("Authorized access to non-existant IDMG %s, FAIL" % idmg)
             return web.HTTPForbidden()
 
+        path_filelist_incremental = pathlib.Path(path_idmg, 'list_incremental.txt')
+
         try:
             path_fuuid, path_staging = prepare_dir(path_idmg, fuuid)
         except FileExists:
@@ -102,11 +128,25 @@ class HostingFileHandler:
             # Receive file and move to bucket
             await receive_fuuid(request, path_workfile, fuuid)
             path_workfile.rename(path_fuuid)
+
+            # Add file to incremental list.
+            if path_filelist_incremental.exists():
+                flag = 'at'  # Append
+            else:
+                flag = 'wt'  # Create new/overwrite
+            with open(path_filelist_incremental, flag) as output:
+                output.write(fuuid + '\n')
         finally:
             # Ensure workfile is deleted
             path_workfile.unlink(missing_ok=True)
 
         return web.HTTPOk()
+
+    async def __manage_file_list_thread(self):
+        while self.__context.stopping is False:
+            files_path = pathlib.Path(self.__context.configuration.dir_files)
+            await _manage_file_list(files_path)
+            await self.__context.wait(CONST_REFRESH_LISTS)  # Every 12 hours
 
 
 async def receive_fuuid(request: web.Request, workfile_path: pathlib.Path, fuuid: Optional[str] = None):
@@ -149,8 +189,53 @@ def prepare_dir(path_idmg: pathlib.Path, fuuid: str) -> (pathlib.Path, pathlib.P
 
 async def iter_bucket_files(path_idmg: pathlib.Path):
     path_buckets = pathlib.Path(path_idmg, 'buckets')
+
+    current_date = datetime.datetime.now()
+    fuuid_count = 0
+    fuuid_size = 0
+
     for bucket in path_buckets.iterdir():
         if bucket.is_dir():
             for file in bucket.iterdir():
                 if file.is_file():
+                    stat = file.stat()
+                    fuuid_count += 1
+                    fuuid_size += stat.st_size
                     yield file.name
+
+    quota_information = {
+        'date': math.floor(current_date.timestamp()),
+        'fuuid': {'count': fuuid_count, 'size': fuuid_size}
+    }
+
+    yield quota_information
+
+
+async def _manage_file_list(files_path: pathlib.Path):
+    # Creates an updated list of files for each managed idmg
+    # Also calculates usage (quotas)
+    for idmg_path in files_path.iterdir():
+        if idmg_path.is_dir() is False:
+            continue  # Skip
+
+        path_usage = pathlib.Path(idmg_path, 'usage.json')
+        path_filelist = pathlib.Path(idmg_path, 'list.txt.gz')
+        path_filelist_work = pathlib.Path(idmg_path, 'list.txt.gz.work')
+        with gzip.open(path_filelist_work, 'wb') as output:
+            async for file in iter_bucket_files(idmg_path):
+                if isinstance(file, str):
+                    filename_bytes = file.encode('utf-8') + b'\n'
+                    output.write(filename_bytes)
+                elif isinstance(file, dict):
+                    # Quota information
+                    with open(path_usage, 'wt') as output_usage:
+                        json.dump(file, output_usage)
+
+        # Delete old file
+        path_filelist.unlink(missing_ok=True)
+        # Replace by new file
+        path_filelist_work.rename(path_filelist)
+
+        # Remove incremental list
+        path_filelist_incremental = pathlib.Path(idmg_path, 'list_incremental.txt')
+        path_filelist_incremental.unlink(missing_ok=True)
