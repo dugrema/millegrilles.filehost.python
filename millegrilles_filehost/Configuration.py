@@ -17,9 +17,9 @@ ENV_WEB_CA = 'WEB_CA'
 ENV_WEB_PORT = 'WEB_PORT'
 
 # Default values
-DEFAULT_DIR_CONFIGURATION="/var/opt/millegrilles/filehosting/configuration"
-DEFAULT_DIR_FILES="/var/opt/millegrilles/filehosting/files"
-DEFAULT_DIR_DATA="/var/opt/millegrilles/filehosting/data"
+DEFAULT_DIR_CONFIGURATION="/var/opt/millegrilles/filehost/configuration"
+DEFAULT_DIR_FILES="/var/opt/millegrilles/filehost/files"
+DEFAULT_DIR_DATA="/var/opt/millegrilles/filehost/data"
 DEFAULT_WEB_CERT="/run/secrets/web.cert"
 DEFAULT_WEB_KEY="/run/secrets/web.key"
 DEFAULT_WEB_PORT=443

@@ -1,8 +1,6 @@
 import datetime
 import logging
-import json
-from nacl import secret
-import base64
+import pathlib
 
 from aiohttp import web
 from cryptography.x509 import ExtensionNotFound
@@ -49,6 +47,12 @@ class AuthenticationHandler:
             enveloppe = await self.__validator.verifier(auth_message, utiliser_idmg_message=True)
             idmg = enveloppe.idmg
 
+            # Ensure that this idmg is hosted here
+            path_idmg = pathlib.Path(self.__context.configuration.dir_files, idmg)
+            if path_idmg.exists() is False:
+                self.__logger.warning('IDMG %s not hosted here' % idmg)
+                return web.HTTPForbidden()
+
         except Exception:
             self.__logger.exception("Error validating auth request")
             return web.HTTPForbidden()
@@ -82,23 +86,3 @@ class AuthenticationHandler:
 
     def generate_cookie(self, response: web.Response, idmg, user_id: Optional[str], roles: Optional[str], exchanges: Optional[str]):
         generate_cookie(self.__context.secret_cookie_key, response, idmg, user_id, roles, exchanges)
-        # duration = datetime.timedelta(hours=1)
-        # expiration = datetime.datetime.now() + duration
-        # expiration_epoch = int(expiration.timestamp())
-        # max_age = duration.seconds
-        # cookie_session = {'expiration': expiration_epoch}
-        # if user_id:
-        #     cookie_session['user_id'] = user_id
-        # if roles:
-        #     cookie_session['roles'] = roles
-        # if exchanges:
-        #     cookie_session['exchanges'] = exchanges
-        # cookie_bytes = json.dumps(cookie_session).encode('utf-8')
-        #
-        # box = secret.SecretBox(self.__context.secret_cookie_key)
-        # cookie_encrypted = box.encrypt(cookie_bytes)
-        # cookie_b64 = base64.b64encode(cookie_encrypted).decode('utf-8')
-        #
-        # response.set_cookie(Constants.CONST_SESSION_COOKIE_NAME, cookie_b64,
-        #                     max_age=max_age, httponly=True, secure=True)
-
