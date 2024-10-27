@@ -142,6 +142,25 @@ class HostingFileHandler:
 
         return web.HTTPOk()
 
+    async def get_usage(self, request: web.Request, cookie: Cookie) -> Union[web.Response, web.StreamResponse]:
+        # This is a read-write/admin level function. Ensure proper roles/security level
+        if 'fichiers' not in cookie.get('roles'):
+            return web.HTTPForbidden()
+
+        idmg = cookie.idmg
+        path_idmg = pathlib.Path(self.__context.configuration.dir_files, idmg)
+        if path_idmg.exists() is False:
+            return web.HTTPForbidden()  # IDMG is not hosted
+
+        path_usage_file = pathlib.Path(path_idmg, 'usage.json')
+        try:
+            with open(path_usage_file, 'rt') as fp:
+                usage = json.load(fp)
+        except FileNotFoundError:
+            return web.HTTPNotFound()
+        else:
+            return web.json_response(usage)
+
     async def __manage_file_list_thread(self):
         while self.__context.stopping is False:
             files_path = pathlib.Path(self.__context.configuration.dir_files)

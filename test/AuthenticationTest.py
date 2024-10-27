@@ -65,7 +65,7 @@ async def authenticate_1(formatteur: FormatteurMessageMilleGrilles, ca: Envelopp
 
 async def put_file_1(formatteur: FormatteurMessageMilleGrilles, ca: EnveloppeCertificat):
     url_authenticate = 'https://thinkcentre1.maple.maceroc.com:3022/filehost/authenticate'
-    path_file = pathlib.Path('/tmp/zSEfXUA2vPzkD1cpCz7o8FnChm5a4EtxfaEHwn4gKy9e5WqaLe4d7gNY6PnEcj4CWdvfeLokTPLkSPPZaYmuxw7QrXgE2f')
+    path_file = pathlib.Path('/tmp/zSEfXUA2kF29zvs68c5srJ5XoWptjkhQhaByymejUKe4zv9yZ6GHkGN94q5q2jnBPJv1znNt1ayEW3z8yT3Hm3C7Cmx3S9')
 
     auth_message = dict()
     signed_message, message_id = formatteur.signer_message(Constantes.KIND_COMMANDE, auth_message, action='authenticate')
@@ -106,6 +106,26 @@ async def get_file_1(formatteur: FormatteurMessageMilleGrilles, ca: EnveloppeCer
                     output.write(chunk)
 
 
+async def get_usage(formatteur: FormatteurMessageMilleGrilles, ca: EnveloppeCertificat):
+    url_authenticate = 'https://thinkcentre1.maple.maceroc.com:3022/filehost/authenticate'
+    url_get_usage = 'https://thinkcentre1.maple.maceroc.com:3022/filehost/usage'
+
+    auth_message = dict()
+    signed_message, message_id = formatteur.signer_message(Constantes.KIND_COMMANDE, auth_message, action='authenticate')
+    ca_pem = ca.certificat_pem
+    signed_message['millegrille'] = ca_pem
+
+    async with aiohttp.ClientSession() as session:
+        async with session.post(url_authenticate, json=signed_message) as r:
+            r.raise_for_status()
+            json_response = await r.json()
+            print("authenticate_1 JSON response: %s\nCookies %s" % (json_response, r.cookies))
+
+        async with session.get(url_get_usage) as r:
+            r.raise_for_status()
+            print("Usage: %s" % await r.json())
+
+
 async def main():
     # Create message signing resource
     signateur, formatteur, ca = load_formatter()
@@ -113,6 +133,7 @@ async def main():
     await authenticate_1(formatteur, ca)
     # await put_file_1(formatteur, ca)
     # await get_file_1(formatteur, ca)
+    await get_usage(formatteur, ca)
 
 
 if __name__ == '__main__':
