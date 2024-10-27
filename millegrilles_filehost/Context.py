@@ -1,9 +1,15 @@
 import asyncio
 import logging
+import ssl
+import signal
+
+from ssl import SSLContext, VerifyMode
 
 from typing import Optional
 
 from millegrilles_filehost.Configuration import FileHostConfiguration
+
+LOGGER = logging.getLogger(__name__)
 
 
 class StopListener:
@@ -26,9 +32,22 @@ class FileHostContext:
         self.__configuration = configuration
         self.__stop_event = asyncio.Event()
         self.__stop_listeners: list[StopListener] = list()
+        self.__ssl_context = _load_ssl_context(configuration)
+
+        signal.signal(signal.SIGINT, self.exit_gracefully)
+        signal.signal(signal.SIGTERM, self.exit_gracefully)
+
+    def exit_gracefully(self, signum=None, frame=None):
+        self.__logger.debug("Signal received: %d, closing" % signum)
+        self.stop()
 
     def stop(self):
-        self.__stop_event.set()
+        loop = asyncio.get_event_loop()
+        if loop is not None:
+            loop.call_soon_threadsafe(self.__stop_event.set)
+        else:
+            self.__logger.warning("Stopping witouth asyncio loop, may take time")
+            self.__stop_event.set()
 
     async def run(self):
         await self.__stop_thread()
@@ -66,3 +85,27 @@ class FileHostContext:
         :return:
         """
         self.__stop_listeners.append(listener)
+
+    @property
+    def configuration(self):
+        return self.__configuration
+
+    @property
+    def ssl_context(self):
+        return self.__ssl_context
+
+
+def _load_ssl_context(configuration: FileHostConfiguration) -> ssl.SSLContext:
+    ssl_context = SSLContext()
+
+    LOGGER.debug("Load web certificate %s" % configuration.web_cert_path)
+    ssl_context.load_cert_chain(configuration.web_cert_path,
+                                configuration.web_key_path)
+
+    if configuration.web_ca_path:
+        ssl_context.load_verify_locations(cafile=configuration.web_ca_path)
+        ssl_context.verify_mode = VerifyMode.CERT_OPTIONAL
+    else:
+        ssl_context.verify_mode = VerifyMode.CERT_NONE
+
+    return ssl_context

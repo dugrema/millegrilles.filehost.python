@@ -10,6 +10,8 @@ Environment variables
 
 <pre>
 WEB_PORT=3022
+WEB_CERT=/var/opt/millegrilles/secrets/pki.web.cert
+WEB_KEY=/var/opt/millegrilles/secrets/pki.web.cle
 </pre>
 
 ## Optional parameters
