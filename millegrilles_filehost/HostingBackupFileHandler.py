@@ -6,8 +6,7 @@ import json
 import math
 
 from aiohttp import web
-from io import BufferedReader
-from typing import Optional, Union
+from typing import Union
 
 from millegrilles_filehost.BackupV2 import lire_header_archive_backup, get_backup_v2_domaines, extraire_headers
 from millegrilles_filehost.Context import FileHostContext

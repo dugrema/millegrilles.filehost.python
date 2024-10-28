@@ -10,7 +10,7 @@ from aiohttp import ClientSession
 from ssl import SSLContext
 from typing import Optional
 
-from millegrilles_messages.messages.Hachage import VerificateurHachage, ErreurHachage, Hacheur
+from millegrilles_messages.messages.Hachage import Hacheur
 
 LOGGER = logging.getLogger(__name__)
 

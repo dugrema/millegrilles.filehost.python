@@ -3,7 +3,7 @@ import logging
 
 from aiohttp import web
 
-from millegrilles_filehost.Context import FileHostContext, StopListener
+from millegrilles_filehost.Context import FileHostContext
 from millegrilles_filehost.WebRoutes import Handlers, WebRouteHandler
 
 
