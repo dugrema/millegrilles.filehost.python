@@ -7,6 +7,7 @@ from millegrilles_filehost import Constants
 from millegrilles_filehost.Context import FileHostContext
 from millegrilles_filehost.AuthenticationHandler import AuthenticationHandler
 from millegrilles_filehost.CookieUtilities import decrypt_cookie, Cookie, CookieExpired
+from millegrilles_filehost.HostingBackupFileHandler import HostingBackupFileHandler
 from millegrilles_filehost.HostingFileHandler import HostingFileHandler
 
 LOGGER = logging.getLogger(__name__)
@@ -14,13 +15,17 @@ LOGGER = logging.getLogger(__name__)
 
 class Handlers:
 
-    def __init__(self, authentication_handlers: AuthenticationHandler, hosting_file_handler: HostingFileHandler):
+    def __init__(self, authentication_handlers: AuthenticationHandler,
+                 hosting_file_handler: HostingFileHandler,
+                 hosting_backup_file_handler: HostingBackupFileHandler):
         self.__authentication_handlers = authentication_handlers
         self.__hosting_file_handler = hosting_file_handler
+        self.__hosting_backup_file_handler = hosting_backup_file_handler
         self.semaphore_auth = asyncio.BoundedSemaphore(value=3)
         self.semaphore_web = asyncio.BoundedSemaphore(value=5)
-        self.semaphore_file_put = asyncio.BoundedSemaphore(value=3)
-        self.semaphore_file_get = asyncio.BoundedSemaphore(value=3)
+        self.semaphore_file_put = asyncio.BoundedSemaphore(value=5)
+        self.semaphore_file_get = asyncio.BoundedSemaphore(value=20)
+        self.semaphore_backup = asyncio.BoundedSemaphore(value=5)
 
     @property
     def authentication_handlers(self):

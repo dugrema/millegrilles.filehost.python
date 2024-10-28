@@ -54,7 +54,7 @@ class AuthenticationHandler:
                 return web.HTTPForbidden()
 
             enveloppe = await self.__validator.verifier(auth_message, utiliser_idmg_message=True)
-            idmg = enveloppe.idmg
+            idmg = enveloppe.idmg  # Note: le IDMG est verifie avec le certificat du message et le CA fourni.
 
             # Ensure that this idmg is hosted here
             path_idmg = pathlib.Path(self.__context.configuration.dir_files, idmg)

@@ -4,6 +4,7 @@ import logging
 from millegrilles_filehost.AuthenticationHandler import AuthenticationHandler
 from millegrilles_filehost.Configuration import FileHostConfiguration
 from millegrilles_filehost.Context import FileHostContext
+from millegrilles_filehost.HostingBackupFileHandler import HostingBackupFileHandler
 from millegrilles_filehost.HostingFileHandler import HostingFileHandler
 from millegrilles_filehost.WebRoutes import Handlers
 from millegrilles_filehost.WebServer import WebServer
@@ -38,7 +39,8 @@ def wiring(context: FileHostContext) -> list[asyncio.Task]:
     # Create instances
     authentication_handler = AuthenticationHandler(context)
     hosting_file_handler = HostingFileHandler(context)
-    handlers = Handlers(authentication_handler, hosting_file_handler)
+    backup_file_handler = HostingBackupFileHandler(context)
+    handlers = Handlers(authentication_handler, hosting_file_handler, backup_file_handler)
 
     web_server = WebServer(context, handlers)
 
@@ -53,6 +55,7 @@ def wiring(context: FileHostContext) -> list[asyncio.Task]:
         asyncio.create_task(web_server.run()),
         asyncio.create_task(authentication_handler.run()),
         asyncio.create_task(hosting_file_handler.run()),
+        asyncio.create_task(backup_file_handler.run()),
     ]
 
     return threads

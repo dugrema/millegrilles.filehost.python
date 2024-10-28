@@ -17,7 +17,7 @@ from millegrilles_messages.messages.Hachage import VerificateurHachage, ErreurHa
 from millegrilles_messages.utils.FilePartUploader import CHUNK_SIZE
 
 CONST_CHUNK_SIZE = 64 * 1024        # 64kb
-CONST_REFRESH_LISTS = 3_600 * 12    # Every 12 hours
+CONST_REFRESH_LISTS = 3_600 * 3    # Every 3 hours
 CONST_MAINTAIN_STAGING = 3_600 * 1    # Every hour
 
 LOGGER = logging.getLogger(__name__)
@@ -30,16 +30,15 @@ class HostingFileHandler:
         self.__context = context
 
     async def run(self):
-        while self.__context.stopping is False:
-            await self.maintenance()
-            await self.__context.wait(30)
+        await self.maintenance()
 
     async def maintenance(self):
-        self.__logger.debug("Maintenance cycle")
+        self.__logger.debug("Starting maintenance")
         await asyncio.gather(
             self.__manage_file_list_thread(),
             self.__manage_staging_thread()
         )
+        self.__logger.debug("Stopping maintenance")
 
     async def file_list(self, request: web.Request, cookie: Cookie) -> Union[web.Response, web.StreamResponse]:
         # This is a read-write/admin level function. Ensure proper roles/security level
