@@ -314,7 +314,7 @@ async def get_backup_v2_domaines(path_backup: pathlib.Path, domaines: Optional[l
 
             if stats is not False or cles is not False:
                 version_courante = info_courant['version']
-                path_version = pathlib.Path(rep_domaine, 'archives', version_courante)
+                path_version = pathlib.Path(rep_domaine, version_courante)
                 # Parcourir tous les fichiers de la version
                 compteur_transactions = 0
                 date_plus_recent = 0

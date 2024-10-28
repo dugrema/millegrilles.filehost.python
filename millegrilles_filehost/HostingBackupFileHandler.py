@@ -3,6 +3,7 @@ import logging
 import pathlib
 import datetime
 import json
+import math
 
 from aiohttp import web
 from io import BufferedReader
@@ -65,14 +66,15 @@ class HostingBackupFileHandler:
             return web.HTTPBadRequest()
 
         # Check if the file already exists
-        path_backup = pathlib.Path(path_idmg, 'backup_v2', domain, version)
-        path_file = pathlib.Path(path_backup, filename)
-        path_file_work = pathlib.Path(path_backup, filename + '.work')
+        path_domain = pathlib.Path(path_idmg, 'backup_v2', domain)
+        path_version = pathlib.Path(path_domain, version)
+        path_file = pathlib.Path(path_version, filename)
+        path_file_work = pathlib.Path(path_version, filename + '.work')
         if path_file.exists():
             return web.HTTPConflict()  # File already received
 
         # Ensure the directory exists or can be created
-        await asyncio.to_thread(path_backup.mkdir, parents=True, exist_ok=True)
+        await asyncio.to_thread(path_version.mkdir, parents=True, exist_ok=True)
 
         self.__logger.debug("handle_put_backup_v2 %s/%s/%s/%s" % (domain, file_type, version, filename))
         suffix_digest_file = filename.split('.')[0].split('_').pop()
@@ -112,8 +114,34 @@ class HostingBackupFileHandler:
                 self.__logger.error("handle_put_backup_v2 Type de fichier doit etre I pour final : %s" % filename)
                 return web.HTTPBadRequest()
 
-            # All good, move file
-            await asyncio.to_thread(path_file_work.rename, path_file)
+            # S'assurer que le fichier de backup est pour le system courant (idmg)
+            if header_archive['idmg'] != idmg:
+                self.__logger.error("put_backup_v2_fichier Fichier upload pour le mauvais IDMG")
+                return web.HTTPExpectationFailed()
+
+            if header_archive['type_archive'] in ['C', 'F']:
+                # S'assurer que le repertoire existe
+                path_version.mkdir(parents=True, exist_ok=True)
+
+            # All good, move backup file
+            path_file_work.rename(path_file)
+
+            if header_archive['type_archive'] == 'C':
+                # Nouveau fichier concatene, on met a jour la version courante
+                # info_version = {'version': version, 'date': int(datetime.datetime.now(datetime.UTC).timestamp())}
+                fin_backup_secs = math.floor(header_archive['fin_backup'] / 1000)
+                info_version = {'version': version, 'date': fin_backup_secs}
+                path_fichier_info = pathlib.Path(path_version, 'info.json')
+                with open(path_fichier_info, 'wt') as fichier:
+                    await asyncio.to_thread(json.dump, info_version, fichier)
+
+                # Remplacer le fichier courant.json
+                path_fichier_courant = pathlib.Path(path_domain, 'courant.json')
+                path_fichier_courant.unlink(missing_ok=True)
+                with open(path_fichier_info, 'rb') as src:
+                    content = await asyncio.to_thread(src.read)
+                with open(path_fichier_courant, 'wb') as output:
+                    await asyncio.to_thread(output.write, content)
         finally:
             # Cleanup
             await asyncio.to_thread(path_file_work.unlink, missing_ok=True)
@@ -156,16 +184,15 @@ class HostingBackupFileHandler:
 
         path_backup = pathlib.Path(path_idmg, 'backup_v2')
         path_domaine = pathlib.Path(path_backup, domain)
-        path_archives = pathlib.Path(path_domaine, 'archives')
         path_info_courante = pathlib.Path(path_domaine, 'courant.json')
         versions = list()
 
         try:
             with open(path_info_courante, 'rt') as fichier:
                 current_version = json.load(fichier)
-            for path_uuid_backup in path_archives.iterdir():
+            for path_uuid_backup in path_domaine.iterdir():
                 if path_uuid_backup.is_dir():
-                    path_info = pathlib.Path(path_archives, path_uuid_backup, 'info.json')
+                    path_info = pathlib.Path(path_domaine, path_uuid_backup, 'info.json')
                     try:
                         with open(path_info, 'rt') as fichier:
                             info_version = json.load(fichier)
