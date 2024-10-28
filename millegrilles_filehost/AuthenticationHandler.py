@@ -41,7 +41,7 @@ class AuthenticationHandler:
             if now - 45 < estampille < now + 15:
                 pass  # Ok, within ~1 minute window
             else:
-                self.__logger.warning("Auth message outside the 5 minute window")
+                self.__logger.warning("Auth message outside the 1 minute window")
                 return web.HTTPForbidden()
 
             try:
@@ -74,6 +74,11 @@ class AuthenticationHandler:
             except ExtensionNotFound:
                 roles = None
             try:
+                domaines = enveloppe.get_domaines
+                response['domaines'] = domaines
+            except ExtensionNotFound:
+                domaines = None
+            try:
                 exchanges = enveloppe.get_exchanges
                 response['exchanges'] = exchanges
             except ExtensionNotFound:
@@ -85,7 +90,7 @@ class AuthenticationHandler:
                 user_id = None
 
             response = web.json_response(response)
-            self.generate_cookie(response, idmg, user_id, roles, exchanges)
+            self.generate_cookie(response, idmg, user_id, roles, exchanges, domaines)
             return response
 
     async def logout(self, request: web.Request) -> web.Response :
@@ -93,5 +98,5 @@ class AuthenticationHandler:
         response.del_cookie(Constants.CONST_SESSION_COOKIE_NAME)
         return response
 
-    def generate_cookie(self, response: web.Response, idmg, user_id: Optional[str], roles: Optional[str], exchanges: Optional[str]):
-        generate_cookie(self.__context.secret_cookie_key, response, idmg, user_id, roles, exchanges)
+    def generate_cookie(self, response: web.Response, idmg, user_id: Optional[str], roles: Optional[list[str]], exchanges: Optional[list[str]], domaines: Optional[list[str]]):
+        generate_cookie(self.__context.secret_cookie_key, response, idmg, user_id, roles, exchanges, domaines)

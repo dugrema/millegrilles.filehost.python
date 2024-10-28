@@ -7,7 +7,7 @@ from millegrilles_filehost.Context import FileHostContext, StopListener
 from millegrilles_filehost.WebRoutes import Handlers, WebRouteHandler
 
 
-class WebServer(StopListener):
+class WebServer:
 
     def __init__(self, context: FileHostContext, handlers: Handlers):
         super().__init__()
@@ -33,8 +33,11 @@ class WebServer(StopListener):
         port = self.__context.configuration.web_port
         site = web.TCPSite(runner, '0.0.0.0', port, ssl_context=self.__context.ssl_context)
 
-        await site.start()
-        self.__logger.info("Web server running, listening on port %s" % port)
-        await self.__context.wait()
+        try:
+            await site.start()
+            self.__logger.info("Web server running, listening on port %s" % port)
+            await self.__context.wait()  # Block while app is running
+        finally:
+            await self.stop()
 
         self.__logger.info("Web server stopping")
