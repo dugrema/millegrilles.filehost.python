@@ -65,13 +65,13 @@ class WebRouteHandler:
             web.delete('/filehost/files/{fuuid}', handler.delete_file),
 
             # /backup_v2
-            web.put('/filehost/backup_v2/{domain}/{type_fichier}/{filename}', handler.put_backup_v2),
-            web.put('/filehost/backup_v2/{domain}/{type_fichier}/{version}/{filename}', handler.put_backup_v2),
+            # web.put('/filehost/backup_v2/{domain}/{file_type}/{filename}', handler.put_backup_v2),
+            web.put('/filehost/backup_v2/{domain}/{file_type}/{version}/{filename}', handler.put_backup_v2),
             web.get('/filehost/backup_v2/domaines', handler.get_backup_v2_domain_list),
             web.get('/filehost/backup_v2/{domain}/archives', handler.get_backup_v2_versions_list),
-            web.get('/filehost/backup_v2/{domain}/final', handler.get_backup_v2_archives_list),
+            # web.get('/filehost/backup_v2/{domain}/final', handler.get_backup_v2_archives_list),
             web.get('/filehost/backup_v2/{domain}/archives/{version}', handler.get_backup_v2_archives_list),
-            web.get('/filehost/backup_v2/{domain}/final/{filename}', handler.get_backup_v2),
+            # web.get('/filehost/backup_v2/{domain}/final/{filename}', handler.get_backup_v2),
             web.get('/filehost/backup_v2/{domain}/archives/{version}/{filename}', handler.get_backup_v2),
             web.get('/filehost/backup_v2/tar/{domain}', handler.get_backup_v2_tar),
         ])

@@ -42,7 +42,7 @@ def generate_cookie(secret_cookie_key: bytes, response: web.Response, idmg: str,
     if exchanges:
         cookie_session['exchanges'] = exchanges
     if domaines:
-        cookie_session['domaines'] = exchanges
+        cookie_session['domaines'] = domaines
     cookie_bytes = json.dumps(cookie_session).encode('utf-8')
 
     box = secret.SecretBox(secret_cookie_key)
