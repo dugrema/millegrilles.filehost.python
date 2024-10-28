@@ -7,6 +7,7 @@ from millegrilles_messages.messages import Constantes
 from millegrilles_messages.messages.CleCertificat import CleCertificat
 from millegrilles_messages.messages.FormatteurMessages import SignateurTransactionSimple, FormatteurMessageMilleGrilles
 from millegrilles_messages.messages.EnveloppeCertificat import EnveloppeCertificat
+from millegrilles_messages.utils.FilePartUploader import file_upload_parts, UploadState
 
 PATH_CORE_CERT = '/var/opt/millegrilles/secrets/pki.fichiers.cert'
 PATH_CORE_CLE = '/var/opt/millegrilles/secrets/pki.fichiers.cle'
@@ -145,15 +146,36 @@ async def delete_file_1(formatteur: FormatteurMessageMilleGrilles, ca: Enveloppe
                 r.raise_for_status()
 
 
+async def put_file_parts_1(formatteur: FormatteurMessageMilleGrilles, ca: EnveloppeCertificat):
+    url_authenticate = 'https://thinkcentre1.maple.maceroc.com:3022/filehost/authenticate'
+    path_file = pathlib.Path('/tmp/zSEfXUF4D5KiY9KxWFikrc4DzBxUMx5VjWCs3DjZhzNV6Ki6WLa2GrZakfUdYZCCsx4ea7HTXDdhsPzVeQmqrXx3wfRpR1')
+
+    auth_message = dict()
+    signed_message, message_id = formatteur.signer_message(Constantes.KIND_COMMANDE, auth_message, 'filehost', action='authenticate')
+    ca_pem = ca.certificat_pem
+    signed_message['millegrille'] = ca_pem
+
+    async with aiohttp.ClientSession() as session:
+        async with session.post(url_authenticate, json=signed_message) as r:
+            r.raise_for_status()
+
+        with open(path_file, 'rb') as fp:
+            url_file = f'https://thinkcentre1.maple.maceroc.com:3022/filehost/files/{path_file.name}'
+            stat = path_file.stat()
+            updload_state = UploadState(path_file.name, fp, stat.st_size)
+            await file_upload_parts(session, url_file, updload_state, batch_size=4096)
+
+
 async def main():
     # Create message signing resource
     signateur, formatteur, ca = load_formatter()
 
-    await authenticate_1(formatteur, ca)
+    # await authenticate_1(formatteur, ca)
     # await put_file_1(formatteur, ca)
     # await get_file_1(formatteur, ca)
     # await get_usage(formatteur, ca)
     # await delete_file_1(formatteur, ca)
+    await put_file_parts_1(formatteur, ca)
 
 
 if __name__ == '__main__':

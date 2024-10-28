@@ -49,9 +49,13 @@ class WebRouteHandler:
             # /files
             web.get('/filehost/files', handler.get_file_list),
             web.get('/filehost/files/{fuuid}', handler.get_file),
-            web.put('/filehost/files/{fuuid}', handler.put_file),
-            web.delete('/filehost/files/{fuuid}', handler.delete_file),
             web.get('/filehost/usage', handler.get_usage),
+            web.put('/filehost/files/{fuuid}', handler.put_file),
+            # File parts
+            web.put('/filehost/files/{fuuid}/{position}', handler.put_file_part),
+            web.post('/filehost/files/{fuuid}', handler.finish_file),
+            # Cleanup
+            web.delete('/filehost/files/{fuuid}', handler.delete_file),
 
             # /backup
         ])
@@ -107,6 +111,22 @@ class WebRouteHandler:
             return web.HTTPUnauthorized()
         async with self.__handlers.semaphore_web:
             return await self.__handlers.hosting_file_handler.get_usage(request, cookie)
+
+    async def put_file_part(self, request: web.Request) -> web.Response:
+        try:
+            cookie = await self.decrypt_cookie(request)
+        except (ValueError, CookieExpired):
+            return web.HTTPUnauthorized()
+        async with self.__handlers.semaphore_file_put:
+            return await self.__handlers.hosting_file_handler.put_file_part(request, cookie)
+
+    async def finish_file(self, request: web.Request) -> web.Response:
+        try:
+            cookie = await self.decrypt_cookie(request)
+        except (ValueError, CookieExpired):
+            return web.HTTPUnauthorized()
+        async with self.__handlers.semaphore_file_put:
+            return await self.__handlers.hosting_file_handler.finish_file(request, cookie)
 
     async def decrypt_cookie(self, request: web.Request) -> Cookie:
         cookie = request.cookies.get(Constants.CONST_SESSION_COOKIE_NAME)
