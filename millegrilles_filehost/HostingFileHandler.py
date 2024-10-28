@@ -5,7 +5,6 @@ import json
 import math
 import pathlib
 import gzip
-from codecs import ignore_errors
 
 from aiohttp import web
 from typing import Optional, Union
