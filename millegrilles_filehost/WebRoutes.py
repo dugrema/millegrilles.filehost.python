@@ -9,6 +9,7 @@ from millegrilles_filehost.AuthenticationHandler import AuthenticationHandler
 from millegrilles_filehost.CookieUtilities import decrypt_cookie, Cookie, CookieExpired
 from millegrilles_filehost.HostingBackupFileHandler import HostingBackupFileHandler
 from millegrilles_filehost.HostingFileHandler import HostingFileHandler
+from millegrilles_filehost.SocketioHandler import SocketioHandler
 
 LOGGER = logging.getLogger(__name__)
 
@@ -17,10 +18,14 @@ class Handlers:
 
     def __init__(self, authentication_handlers: AuthenticationHandler,
                  hosting_file_handler: HostingFileHandler,
-                 hosting_backup_file_handler: HostingBackupFileHandler):
+                 hosting_backup_file_handler: HostingBackupFileHandler,
+                 socketio_handler: SocketioHandler):
+
         self.__authentication_handlers = authentication_handlers
         self.__hosting_file_handler = hosting_file_handler
         self.__hosting_backup_file_handler = hosting_backup_file_handler
+        self.__socketio_handler = socketio_handler
+
         self.semaphore_auth = asyncio.BoundedSemaphore(value=3)
         self.semaphore_web = asyncio.BoundedSemaphore(value=5)
         self.semaphore_file_put = asyncio.BoundedSemaphore(value=5)
@@ -38,6 +43,10 @@ class Handlers:
     @property
     def hosting_backup_file_handler(self):
         return self.__hosting_backup_file_handler
+
+    @property
+    def socketio_hancler(self):
+        return self.__socketio_handler
 
 
 class WebRouteHandler:

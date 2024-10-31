@@ -19,6 +19,10 @@ class WebServer:
 
         self.__web_sem = asyncio.BoundedSemaphore(3)
 
+    @property
+    def app(self):
+        return self.__web_app
+
     async def stop(self):
         await self.__web_app.cleanup()
 
