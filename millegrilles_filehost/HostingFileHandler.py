@@ -50,11 +50,16 @@ class HostingFileHandler:
 
     async def maintenance(self):
         self.__logger.debug("Starting maintenance")
-        await asyncio.gather(
-            self.__manage_file_list_thread(),
-            self.__manage_staging_thread()
-        )
-        self.__logger.debug("Stopping maintenance")
+        done, pending = await asyncio.wait([
+            asyncio.create_task(self.__manage_file_list_thread()),
+            asyncio.create_task(self.__manage_staging_thread()),
+            asyncio.create_task(self.__emit_status_thread()),
+        ], return_when=asyncio.FIRST_COMPLETED)
+        if self.__context.stopping is False:
+            self.__logger.error("Maintenant thread stopped out of turn")
+            self.__context.stop()
+        await asyncio.gather(*pending, return_exceptions=True)
+        self.__logger.debug("Maintenance stopped")
 
     async def file_list(self, request: web.Request, cookie: Cookie) -> Union[web.Response, web.StreamResponse]:
         # This is a read-write/admin level function. Ensure proper roles/security level
@@ -224,6 +229,22 @@ class HostingFileHandler:
             files_path = pathlib.Path(self.__context.configuration.dir_files)
             await _manage_staging(files_path)
             await self.__context.wait(CONST_MAINTAIN_STAGING)  # Every 12 hours
+
+    async def __emit_status_thread(self):
+        while self.__context.stopping is False:
+            # Go through all idmg folders, load usage.json and emit on socket.io
+            path_files = pathlib.Path(self.__context.configuration.dir_files)
+            for f in path_files.iterdir():
+                if f.is_dir():
+                    idmg = f.name
+                    path_usage = pathlib.Path(f, 'usage.json')
+                    try:
+                        with open(path_usage, 'rt') as fp:
+                            usage = await asyncio.to_thread(json.load, fp)
+                        await self.emit_event(idmg, 'usage', usage)
+                    except FileNotFoundError:
+                        pass
+            await self.__context.wait(300)
 
     async def put_file_part(self, request: web.Request, cookie: Cookie) -> web.Response:
         # This is a read-write/admin level function. Ensure proper roles/security level

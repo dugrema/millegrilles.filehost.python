@@ -3,6 +3,7 @@ import logging
 import ssl
 import signal
 import secrets
+import threading
 
 from ssl import SSLContext, VerifyMode
 
@@ -38,6 +39,7 @@ class FileHostContext:
         self.__stop_listeners: list[StopListener] = list()
         self.__ssl_context = _load_ssl_context(configuration)
         self.__secret_cookie_key = SECRET_COOKIE_KEY
+        self.__sync_event = threading.Event()
 
         signal.signal(signal.SIGINT, self.exit_gracefully)
         signal.signal(signal.SIGTERM, self.exit_gracefully)
@@ -47,15 +49,18 @@ class FileHostContext:
         self.stop()
 
     def stop(self):
-        loop = asyncio.get_event_loop()
-        if loop is not None:
-            loop.call_soon_threadsafe(self.__stop_event.set)
-        else:
-            self.__logger.warning("Stopping without asyncio loop, may take time")
-            self.__stop_event.set()
+        self.__sync_event.set()
 
     async def run(self):
-        await self.__stop_thread()
+        await asyncio.gather(self.__stop_thread(), self.__sync_stop_thread())
+
+    async def __sync_stop_thread(self):
+        """
+        Thread that listens to a non async process/callback toggling the sync_event flag.
+        :return:
+        """
+        await asyncio.to_thread(self.__sync_event.wait)
+        self.__stop_event.set()  # Toggle async stop thread
 
     async def __stop_thread(self):
         await self.__stop_event.wait()

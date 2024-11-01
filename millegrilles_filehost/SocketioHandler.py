@@ -8,7 +8,7 @@ from socketio.exceptions import ConnectionRefusedError
 from millegrilles_filehost.HostingFileHandler import HostingFileEventListener
 from millegrilles_messages.messages import Constantes
 from millegrilles_filehost.AuthenticationHandler import AuthenticationHandler
-from millegrilles_filehost.Context import FileHostContext
+from millegrilles_filehost.Context import FileHostContext, StopListener
 
 
 class IdmgEventListener:
@@ -45,9 +45,10 @@ class SioListeners(HostingFileEventListener):
             pass
 
 
-class SocketioHandler:
+class SocketioHandler(StopListener):
 
     def __init__(self, context: FileHostContext, authentication_handler: AuthenticationHandler):
+        super().__init__()
         self.__logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
         self.__context = context
         self.__authentication_handler = authentication_handler
@@ -73,6 +74,9 @@ class SocketioHandler:
         await self.__prepare_socketio_events()
         while self.__context.stopping is False:
             await self.__context.wait()
+
+    async def stop(self):
+        await self.__sio.shutdown()
 
     async def __prepare_socketio_events(self):
         self.__sio.on('connect', handler=self.connect)

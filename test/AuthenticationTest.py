@@ -82,7 +82,7 @@ async def authenticate_1(formatteur: FormatteurMessageMilleGrilles, ca: Envelopp
 
 async def put_file_1(formatteur: FormatteurMessageMilleGrilles, ca: EnveloppeCertificat):
     url_authenticate = 'https://thinkcentre1.maple.maceroc.com:3022/filehost/authenticate'
-    path_file = pathlib.Path('/tmp/zSEfXUAnURyGGW3smduho8dyTo3UHBMo4esqfxA46Wr1mTpgJdQK3pLTcBKwmCP4SFo1GE25b29SpQMYpfnJQwWF1qS6Fs')
+    path_file = pathlib.Path('/tmp/zSEfXUD5wSfD4k7rvZEBNZpaw4d65L6BGxck9LDutLWgMREi11NiBD5XJvc8grPYW1XX3mDpqHF3pttpcrJqTF4X6kUYPb')
 
     auth_message = dict()
     signed_message, message_id = formatteur.signer_message(Constantes.KIND_COMMANDE, auth_message, 'filehost', action='authenticate')

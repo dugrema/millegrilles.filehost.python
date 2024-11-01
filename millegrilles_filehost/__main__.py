@@ -53,6 +53,7 @@ def wiring(context: FileHostContext) -> list[asyncio.Task]:
 
     # Register listeners for the stop event
     # context.register_stop_listener(web_server)
+    context.register_stop_listener(socketio_handler)
 
     # Create tasks
     threads = [
