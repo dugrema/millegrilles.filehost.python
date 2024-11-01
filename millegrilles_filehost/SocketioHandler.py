@@ -105,7 +105,6 @@ class SocketioHandler(StopListener):
             raise ConnectionRefusedError('authentication failed')
 
         self.__logger.debug("Connected sid %s" % sid)
-        # self.__sio_listeners.add_sid(idmg, sid)
         await self.__sio.enter_room(sid, room='idmg/%s'%idmg)
 
         return True

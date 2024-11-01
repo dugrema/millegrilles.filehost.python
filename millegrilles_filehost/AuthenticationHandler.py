@@ -5,9 +5,9 @@ import pathlib
 from aiohttp import web
 from cryptography.x509 import ExtensionNotFound
 from typing import Optional
+from socketio.exceptions import ConnectionRefusedError
 
 from millegrilles_filehost import Constants
-from millegrilles_filehost.Configuration import FileHostConfiguration
 from millegrilles_filehost.Context import FileHostContext
 from millegrilles_filehost.CookieUtilities import generate_cookie
 from millegrilles_messages.messages.EnveloppeCertificat import EnveloppeCertificat

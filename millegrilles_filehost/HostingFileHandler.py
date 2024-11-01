@@ -37,6 +37,7 @@ class HostingFileHandler:
         self.__logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
         self.__context = context
         self.__event_listeners: list[HostingFileEventListener] = list()
+        self.__semaphore_usage_update = asyncio.BoundedSemaphore(value=1)
 
     async def run(self):
         await self.maintenance()
@@ -169,7 +170,7 @@ class HostingFileHandler:
 
         # Increment filecount/file size
         try:
-            await update_file_usage(path_idmg, path_fuuid)
+            await update_file_usage(path_idmg, path_fuuid, self.__semaphore_usage_update)
             await self.emit_event(idmg, 'newFuuid', {'fuuid': fuuid})
         except:
             self.__logger.exception("Error udpating file usage information")
@@ -211,8 +212,9 @@ class HostingFileHandler:
 
         path_usage_file = pathlib.Path(path_idmg, 'usage.json')
         try:
-            with open(path_usage_file, 'rt') as fp:
-                usage = json.load(fp)
+            async with self.__semaphore_usage_update:
+                with open(path_usage_file, 'rt') as fp:
+                    usage = json.load(fp)
         except FileNotFoundError:
             return web.HTTPNotFound()
         else:
@@ -221,7 +223,7 @@ class HostingFileHandler:
     async def __manage_file_list_thread(self):
         while self.__context.stopping is False:
             files_path = pathlib.Path(self.__context.configuration.dir_files)
-            await _manage_file_list(files_path)
+            await _manage_file_list(files_path, self.__semaphore_usage_update)
             await self.__context.wait(CONST_REFRESH_LISTS)  # Every 12 hours
 
     async def __manage_staging_thread(self):
@@ -239,11 +241,14 @@ class HostingFileHandler:
                     idmg = f.name
                     path_usage = pathlib.Path(f, 'usage.json')
                     try:
-                        with open(path_usage, 'rt') as fp:
-                            usage = await asyncio.to_thread(json.load, fp)
+                        async with self.__semaphore_usage_update:
+                            with open(path_usage, 'rt+') as fp:
+                                usage = await asyncio.to_thread(json.load, fp)
                         await self.emit_event(idmg, 'usage', usage)
                     except FileNotFoundError:
                         pass
+                    except json.JSONDecodeError as e:
+                        self.__logger.warning("Error opening usage.json for %s: %s" % (idmg, e))
             await self.__context.wait(300)
 
     async def put_file_part(self, request: web.Request, cookie: Cookie) -> web.Response:
@@ -336,7 +341,7 @@ class HostingFileHandler:
 
         # Increment filecount/file size
         try:
-            await update_file_usage(path_idmg, path_fuuid)
+            await update_file_usage(path_idmg, path_fuuid, self.__semaphore_usage_update)
             await self.emit_event(idmg, 'newFuuid', {'fuuid': fuuid})
         except:
             self.__logger.exception("Error udpating file usage information")
@@ -411,7 +416,7 @@ async def iter_bucket_files(path_idmg: pathlib.Path):
     yield quota_information
 
 
-async def _manage_file_list(files_path: pathlib.Path):
+async def _manage_file_list(files_path: pathlib.Path, semaphore: asyncio.Semaphore):
     # Creates an updated list of files for each managed idmg
     # Also calculates usage (quotas)
     for idmg_path in files_path.iterdir():
@@ -429,8 +434,9 @@ async def _manage_file_list(files_path: pathlib.Path):
                     await asyncio.to_thread(output.write, filename_bytes)
                 except KeyError:
                     # Quota information
-                    with open(path_usage, 'wt') as output_usage:
-                        await asyncio.to_thread(json.dump, bucket_info, output_usage)
+                    async with semaphore:
+                        with open(path_usage, 'wt') as output_usage:
+                            await asyncio.to_thread(json.dump, bucket_info, output_usage)
 
         # Delete old file
         path_filelist.unlink(missing_ok=True)
@@ -482,23 +488,24 @@ async def _manage_staging(files_path: pathlib.Path):
                 LOGGER.warning("Unhandled stale item type: %s" % item)
 
 
-async def update_file_usage(path_idmg: pathlib.Path, path_fuuid: pathlib.Path):
+async def update_file_usage(path_idmg: pathlib.Path, path_fuuid: pathlib.Path, semaphore: asyncio.Semaphore):
     # Increment filecount/file size
     stat = path_fuuid.stat()
     file_size = stat.st_size
     path_usage_file = pathlib.Path(path_idmg, 'usage.json')
     now = math.floor(datetime.datetime.now().timestamp())
-    try:
-        with open(path_usage_file, 'r+') as fp:
-            usage_file = await asyncio.to_thread(json.load, fp)
-            fuuid = usage_file['fuuid']
-            fuuid['count'] = fuuid['count'] + 1
-            fuuid['size'] = fuuid['size'] + file_size
-            usage_file['date'] = now
-            fp.seek(0)
-            await asyncio.to_thread(json.dump, usage_file, fp)
-            fp.truncate()
-    except FileNotFoundError:
-        with open(path_usage_file, 'wt') as fp:
-            usage_file = {'date': now, 'fuuid': {'count': 1, 'size': file_size}}
-            await asyncio.to_thread(json.dump, usage_file, fp)
+    async with semaphore:
+        try:
+            with open(path_usage_file, 'r+') as fp:
+                usage_file = await asyncio.to_thread(json.load, fp)
+                fuuid = usage_file['fuuid']
+                fuuid['count'] = fuuid['count'] + 1
+                fuuid['size'] = fuuid['size'] + file_size
+                usage_file['date'] = now
+                fp.seek(0)
+                await asyncio.to_thread(json.dump, usage_file, fp)
+                fp.truncate()
+        except FileNotFoundError:
+            with open(path_usage_file, 'wt') as fp:
+                usage_file = {'date': now, 'fuuid': {'count': 1, 'size': file_size}}
+                await asyncio.to_thread(json.dump, usage_file, fp)
