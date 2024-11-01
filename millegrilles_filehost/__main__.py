@@ -1,5 +1,7 @@
 import asyncio
 import logging
+import os
+import pathlib
 
 from millegrilles_filehost.AuthenticationHandler import AuthenticationHandler
 from millegrilles_filehost.Configuration import FileHostConfiguration
@@ -17,6 +19,8 @@ LOGGER = logging.getLogger(__name__)
 async def main():
     config = FileHostConfiguration.load()
     context = FileHostContext(config)
+
+    create_folders(context)
 
     # Wire classes together, gets tasks to run
     tasks = wiring(context)
@@ -66,6 +70,18 @@ def wiring(context: FileHostContext) -> list[asyncio.Task]:
     ]
 
     return threads
+
+
+def create_folders(context: FileHostContext):
+    dir_files = pathlib.Path(context.configuration.dir_files)
+    dir_files.mkdir(parents=True, exist_ok=True)
+
+    try:
+        idmg_default = os.environ['IDMG']
+        path_idmg = dir_files.joinpath(idmg_default)
+        path_idmg.mkdir(parents=True, exist_ok=True)
+    except KeyError:
+        pass
 
 
 if __name__ == '__main__':

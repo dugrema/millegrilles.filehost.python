@@ -397,14 +397,17 @@ async def iter_bucket_files(path_idmg: pathlib.Path):
     fuuid_count = 0
     fuuid_size = 0
 
-    for bucket in path_buckets.iterdir():
-        if bucket.is_dir():
-            for file in bucket.iterdir():
-                if file.is_file():
-                    stat = file.stat()
-                    fuuid_count += 1
-                    fuuid_size += stat.st_size
-                    yield {'name': file.name}
+    try:
+        for bucket in path_buckets.iterdir():
+            if bucket.is_dir():
+                for file in bucket.iterdir():
+                    if file.is_file():
+                        stat = file.stat()
+                        fuuid_count += 1
+                        fuuid_size += stat.st_size
+                        yield {'name': file.name}
+    except FileNotFoundError:
+        pass  # No buckets
 
     quota_information = {
         'date': math.floor(current_date.timestamp()),
