@@ -35,8 +35,13 @@ async def connect(formatteur: FormatteurMessageMilleGrilles, ca: EnveloppeCertif
         auth_message['millegrille'] = ca.certificat_pem
         await sio.connect('https://thinkcentre1.maple.maceroc.com:3022', socketio_path='/filehost/socket.io', auth=auth_message)
 
-        await asyncio.sleep(1)
-        pass
+        while True:
+            event = await sio.receive(timeout=60)
+            print("Received event %s" % event)
+
+
+async def fuuid_event(sid: str, message: dict):
+    pass
 
 
 async def main():

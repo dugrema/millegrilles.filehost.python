@@ -22,15 +22,31 @@ CONST_MAINTAIN_STAGING = 3_600 * 1    # Every hour
 
 LOGGER = logging.getLogger(__name__)
 
+class HostingFileEventListener:
+
+    def __init__(self):
+        pass
+
+    async def on_event(self, idmg: str, name: str, value: dict):
+        pass
+
 
 class HostingFileHandler:
 
     def __init__(self, context: FileHostContext):
         self.__logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
         self.__context = context
+        self.__event_listeners: list[HostingFileEventListener] = list()
 
     async def run(self):
         await self.maintenance()
+
+    def add_event_listener(self, listener: HostingFileEventListener):
+        self.__event_listeners.append(listener)
+
+    async def emit_event(self, idmg: str, name: str, value: dict):
+        for l in self.__event_listeners:
+            await l.on_event(idmg, name, value)
 
     async def maintenance(self):
         self.__logger.debug("Starting maintenance")
@@ -145,6 +161,13 @@ class HostingFileHandler:
         finally:
             # Ensure workfile is deleted
             await asyncio.to_thread(path_workfile.unlink, missing_ok=True)
+
+        # Increment filecount/file size
+        try:
+            await update_file_usage(path_idmg, path_fuuid)
+            await self.emit_event(idmg, 'newFuuid', {'fuuid': fuuid})
+        except:
+            self.__logger.exception("Error udpating file usage information")
 
         return web.HTTPOk()
 
@@ -290,6 +313,13 @@ class HostingFileHandler:
         finally:
             path_workfile.unlink(missing_ok=True)
 
+        # Increment filecount/file size
+        try:
+            await update_file_usage(path_idmg, path_fuuid)
+            await self.emit_event(idmg, 'newFuuid', {'fuuid': fuuid})
+        except:
+            self.__logger.exception("Error udpating file usage information")
+
         return web.HTTPOk()
 
 
@@ -429,3 +459,25 @@ async def _manage_staging(files_path: pathlib.Path):
                 await asyncio.to_thread(shutil_rmtree, item, ignore_errors=True)
             else:
                 LOGGER.warning("Unhandled stale item type: %s" % item)
+
+
+async def update_file_usage(path_idmg: pathlib.Path, path_fuuid: pathlib.Path):
+    # Increment filecount/file size
+    stat = path_fuuid.stat()
+    file_size = stat.st_size
+    path_usage_file = pathlib.Path(path_idmg, 'usage.json')
+    now = math.floor(datetime.datetime.now().timestamp())
+    try:
+        with open(path_usage_file, 'r+') as fp:
+            usage_file = await asyncio.to_thread(json.load, fp)
+            fuuid = usage_file['fuuid']
+            fuuid['count'] = fuuid['count'] + 1
+            fuuid['size'] = fuuid['size'] + file_size
+            usage_file['date'] = now
+            fp.seek(0)
+            await asyncio.to_thread(json.dump, usage_file, fp)
+            fp.truncate()
+    except FileNotFoundError:
+        with open(path_usage_file, 'wt') as fp:
+            usage_file = {'date': now, 'fuuid': {'count': 1, 'size': file_size}}
+            await asyncio.to_thread(json.dump, usage_file, fp)

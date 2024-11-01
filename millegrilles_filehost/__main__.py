@@ -48,6 +48,8 @@ def wiring(context: FileHostContext) -> list[asyncio.Task]:
 
     # Wiring
     socketio_handler.app = web_server.app
+    sio_idmg_event_listener = socketio_handler.idmg_event_listener
+    hosting_file_handler.add_event_listener(sio_idmg_event_listener)
 
     # Register listeners for the stop event
     # context.register_stop_listener(web_server)
