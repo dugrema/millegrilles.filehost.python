@@ -83,7 +83,7 @@ async def authenticate_1(formatteur: FormatteurMessageMilleGrilles, ca: Envelopp
 
 async def put_file_1(formatteur: FormatteurMessageMilleGrilles, ca: EnveloppeCertificat):
     url_authenticate = 'https://thinkcentre1.maple.maceroc.com:3022/filehost/authenticate'
-    path_file = pathlib.Path('/tmp/zSEfXUB6M6wMspdfXpKCr2xatafnwA1deZTW7tYUDMf7BAZirDYecEdtMaa2xpEeETC53TKt1ctuqB33LrK5mKRJufi9h5')
+    path_file = pathlib.Path('/tmp/zSEfXUD5wSfD4k7rvZEBNZpaw4d65L6BGxck9LDutLWgMREi11NiBD5XJvc8grPYW1XX3mDpqHF3pttpcrJqTF4X6kUYPb')
 
     auth_message = dict()
     signed_message, message_id = formatteur.signer_message(Constantes.KIND_COMMANDE, auth_message, 'filehost', action='authenticate')
@@ -305,8 +305,8 @@ async def main():
     # Create message signing resource
     signateur, formatteur, ca = load_formatter_fichiers()
 
-    await authenticate_1(formatteur, ca)
-    # await put_file_1(formatteur, ca)
+    # await authenticate_1(formatteur, ca)
+    await put_file_1(formatteur, ca)
     # await get_file_1(formatteur, ca)
     # await get_usage(formatteur, ca)
     # await delete_file_1(formatteur, ca)
