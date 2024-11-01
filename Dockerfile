@@ -2,9 +2,8 @@ FROM docker.maple.maceroc.com:5000/millegrilles_messages_python:2024.8.62
 
 ARG VBUILD=2024.8.0
 
-ENV CERT_PEM=/run/secrets/cert.pem \
-    KEY_PEM=/run/secrets/key.pem \
-    CA_PEM=/run/secrets/pki.millegrille.cert \
+ENV WEB_CERT=/run/secrets/web.cert \
+    WEB_KEY=/run/secrets/web.key \
     WEB_PORT=1443
 
 EXPOSE 80 443 444
@@ -19,6 +18,9 @@ COPY . $BUILD_FOLDER
 
 RUN pip3 install --no-cache-dir -r $BUILD_FOLDER/requirements.txt && \
     cd $BUILD_FOLDER/  && \
+    mkdir -p /var/opt/millegrilles/filehost/files && \
     python3 ./setup.py install
+
+VOLUME ["/var/opt/millegrilles/filehost"]
 
 CMD ["-m", "millegrilles_filehost"]
