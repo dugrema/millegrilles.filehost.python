@@ -64,7 +64,7 @@ class HostingFileHandler:
 
     async def file_list(self, request: web.Request, cookie: Cookie) -> Union[web.Response, web.StreamResponse]:
         # This is a read-write/admin level function. Ensure proper roles/security level
-        if 'fichiers' not in cookie.get('roles'):
+        if 'filecontroler' not in cookie.get('roles'):
             return web.HTTPForbidden()
 
         idmg = cookie.idmg
@@ -73,6 +73,7 @@ class HostingFileHandler:
             return web.HTTPForbidden()  # IDMG is not hosted
 
         response = web.StreamResponse(status=200)
+        response.enable_compression()  # Compress the output if applicable
         await response.prepare(request)
 
         path_filelist = pathlib.Path(path_idmg, 'list.txt.gz')
@@ -132,7 +133,7 @@ class HostingFileHandler:
 
     async def put_file(self, request: web.Request, cookie: Cookie) -> web.Response:
         # This is a read-write function. Ensure proper roles/security level
-        if 'fichiers' not in cookie.get('roles'):
+        if 'filecontroler' not in cookie.get('roles'):
             return web.HTTPForbidden()
 
         idmg = cookie.idmg
@@ -179,7 +180,7 @@ class HostingFileHandler:
 
     async def delete_file(self, request: web.Request, cookie: Cookie) -> web.Response:
         # This is a read-write function. Ensure proper roles/security level
-        if 'fichiers' not in cookie.get('roles'):
+        if 'filecontroler' not in cookie.get('roles'):
             return web.HTTPForbidden()
 
         idmg = cookie.idmg
@@ -202,7 +203,7 @@ class HostingFileHandler:
 
     async def get_usage(self, request: web.Request, cookie: Cookie) -> Union[web.Response, web.StreamResponse]:
         # This is a read-write/admin level function. Ensure proper roles/security level
-        if 'fichiers' not in cookie.get('roles'):
+        if 'filecontroler' not in cookie.get('roles'):
             return web.HTTPForbidden()
 
         idmg = cookie.idmg
@@ -250,7 +251,7 @@ class HostingFileHandler:
 
     async def put_file_part(self, request: web.Request, cookie: Cookie) -> web.Response:
         # This is a read-write/admin level function. Ensure proper roles/security level
-        if 'fichiers' not in cookie.get('roles'):
+        if 'filecontroler' not in cookie.get('roles'):
             return web.HTTPForbidden()
 
         idmg = cookie.idmg
@@ -288,7 +289,7 @@ class HostingFileHandler:
 
     async def finish_file(self, request: web.Request, cookie: Cookie) -> web.Response:
         # This is a read-write/admin level function. Ensure proper roles/security level
-        if 'fichiers' not in cookie.get('roles'):
+        if 'filecontroler' not in cookie.get('roles'):
             return web.HTTPForbidden()
 
         idmg = cookie.idmg

@@ -9,8 +9,8 @@ from millegrilles_messages.messages.FormatteurMessages import SignateurTransacti
 from millegrilles_messages.messages.EnveloppeCertificat import EnveloppeCertificat
 from millegrilles_messages.utils.FilePartUploader import file_upload_parts, UploadState
 
-PATH_FICHIERS_CERT = '/var/opt/millegrilles/secrets/pki.fichiers.cert'
-PATH_FICHIERS_CLE = '/var/opt/millegrilles/secrets/pki.fichiers.cle'
+PATH_FICHIERS_CERT = '/var/opt/millegrilles/secrets/pki.filecontroler.cert'
+PATH_FICHIERS_CLE = '/var/opt/millegrilles/secrets/pki.filecontroler.cle'
 PATH_CORE_CERT = '/var/opt/millegrilles/secrets/pki.core.cert'
 PATH_CORE_CLE = '/var/opt/millegrilles/secrets/pki.core.cle'
 PATH_CA_CERT = '/var/opt/millegrilles/configuration/pki.millegrille.cert'
@@ -62,6 +62,7 @@ async def authenticate_1(formatteur: FormatteurMessageMilleGrilles, ca: Envelopp
 
         async with session.get(url_get_files) as r:
             r.raise_for_status()
+            print("Headers = %s" % r.headers)
             print("File list")
             while True:
                 line = await r.content.readline()
@@ -82,7 +83,7 @@ async def authenticate_1(formatteur: FormatteurMessageMilleGrilles, ca: Envelopp
 
 async def put_file_1(formatteur: FormatteurMessageMilleGrilles, ca: EnveloppeCertificat):
     url_authenticate = 'https://thinkcentre1.maple.maceroc.com:3022/filehost/authenticate'
-    path_file = pathlib.Path('/tmp/zSEfXUB3eRHKBcta2sjqyv63QxDPZ2wjM7qkQDuNppfvQeFspzDKDdVYppsbohqvEsAqGzUh46znwSqh3Mr7JnSRzCez8S')
+    path_file = pathlib.Path('/tmp/zSEfXUB6M6wMspdfXpKCr2xatafnwA1deZTW7tYUDMf7BAZirDYecEdtMaa2xpEeETC53TKt1ctuqB33LrK5mKRJufi9h5')
 
     auth_message = dict()
     signed_message, message_id = formatteur.signer_message(Constantes.KIND_COMMANDE, auth_message, 'filehost', action='authenticate')
@@ -110,7 +111,9 @@ async def get_file_1(formatteur: FormatteurMessageMilleGrilles, ca: EnveloppeCer
     ca_pem = ca.certificat_pem
     signed_message['millegrille'] = ca_pem
 
-    async with aiohttp.ClientSession() as session:
+    headers = {'Accept-Encoding': 'gzip'}
+
+    async with aiohttp.ClientSession(headers=headers) as session:
         async with session.post(url_authenticate, json=signed_message) as r:
             r.raise_for_status()
 
@@ -302,8 +305,8 @@ async def main():
     # Create message signing resource
     signateur, formatteur, ca = load_formatter_fichiers()
 
-    # await authenticate_1(formatteur, ca)
-    await put_file_1(formatteur, ca)
+    await authenticate_1(formatteur, ca)
+    # await put_file_1(formatteur, ca)
     # await get_file_1(formatteur, ca)
     # await get_usage(formatteur, ca)
     # await delete_file_1(formatteur, ca)
