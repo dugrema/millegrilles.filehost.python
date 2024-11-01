@@ -1,35 +1,15 @@
 import aiohttp
 import socketio
 import logging
+import pathlib
 
 from typing import Optional
 from socketio.exceptions import ConnectionRefusedError
 
-from millegrilles_filehost.HostingFileHandler import HostingFileEventListener
+from millegrilles_filehost.HostingFileHandler import HostingFileEventListener, get_file_usage
 from millegrilles_messages.messages import Constantes
 from millegrilles_filehost.AuthenticationHandler import AuthenticationHandler
 from millegrilles_filehost.Context import FileHostContext, StopListener
-
-
-class IdmgEventListener:
-
-    def __init__(self, idmg: str):
-        self.__idmg = idmg
-        self.__sids = set()
-
-    @property
-    def idmg(self):
-        return self.__idmg
-
-    @property
-    def sids(self):
-        return self.__sids
-
-    def add_sid(self, sid: str):
-        self.__sids.add(sid)
-
-    def remove_sid(self, sid: str):
-        self.__sids.remove(sid)
 
 
 class SioListeners(HostingFileEventListener):
@@ -55,6 +35,7 @@ class SocketioHandler(StopListener):
         self.__sio = socketio.AsyncServer(async_mode='aiohttp', cors_allowed_origins='*')
         self.__app: Optional[aiohttp.web_app.Application] = None
         self.__idmg_event_listener = SioListeners(self.__sio)
+        self.__sids_idmg: dict[str, str] = dict()  # {sid: idmg}
 
     @property
     def app(self):
@@ -79,10 +60,12 @@ class SocketioHandler(StopListener):
         await self.__sio.shutdown()
 
     async def __prepare_socketio_events(self):
-        self.__sio.on('connect', handler=self.connect)
-        self.__sio.on('disconnect', handler=self.disconnect)
+        self.__sio.on('connect', handler=self.on_connect)
+        self.__sio.on('disconnect', handler=self.on_disconnect)
 
-    async def connect(self, sid: str, environ: dict, auth: Optional[dict] = None):
+        self.__sio.on('usage', handler=self.on_usage)
+
+    async def on_connect(self, sid: str, environ: dict, auth: Optional[dict] = None):
         if auth is None:
             self.__logger.debug("Missing authentication message - REFUSED")
             raise ConnectionRefusedError('authentication failed')
@@ -107,9 +90,33 @@ class SocketioHandler(StopListener):
         self.__logger.debug("Connected sid %s" % sid)
         await self.__sio.enter_room(sid, room='idmg/%s'%idmg)
 
+        # Keep link between sid and idmg for commands
+        self.__sids_idmg[sid] = idmg
+
         return True
 
-    async def disconnect(self, sid: str):
+    async def on_disconnect(self, sid: str):
         self.__logger.debug("Disconnect sid %s" % sid)
-        # self.__sio_listeners.remove_sid(sid)
 
+        # Remove sid from dict
+        try:
+            del self.__sids_idmg[sid]
+        except KeyError:
+            pass
+
+    async def on_usage(self, sid: str):
+        try:
+            idmg = self.__sids_idmg[sid]
+        except KeyError:
+            return {'ok': False}  # Access denied
+
+        path_idmg = pathlib.Path(self.__context.configuration.dir_files, idmg)
+        if path_idmg.exists() is False:
+            return {'ok': False}  # Access denied
+
+        try:
+            usage = await get_file_usage(path_idmg, self.__context.semaphore_usage_update)
+        except FileNotFoundError:
+            return {'ok': False, 'err': 'No information'}
+        else:
+            return {'ok': True, 'usage': usage}

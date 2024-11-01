@@ -9,16 +9,16 @@ import gzip
 from aiohttp import web
 from typing import Optional, Union
 
-from setuptools.compat.py311 import shutil_rmtree
+from shutil import rmtree
 
 from millegrilles_filehost.Context import FileHostContext
 from millegrilles_filehost.CookieUtilities import Cookie
 from millegrilles_messages.messages.Hachage import VerificateurHachage, ErreurHachage
 from millegrilles_messages.utils.FilePartUploader import CHUNK_SIZE
 
-CONST_CHUNK_SIZE = 64 * 1024        # 64kb
-CONST_REFRESH_LISTS = 3_600 * 3    # Every 3 hours
-CONST_MAINTAIN_STAGING = 3_600 * 1    # Every hour
+CONST_CHUNK_SIZE = 64 * 1024                # 64kb
+CONST_REFRESH_LISTS_INTERVAl = 3_600 * 8    # Every 8 hours
+CONST_MAINTAIN_STAGING_INTERVAL = 3_600 * 1 # Every hour
 
 LOGGER = logging.getLogger(__name__)
 
@@ -37,7 +37,7 @@ class HostingFileHandler:
         self.__logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
         self.__context = context
         self.__event_listeners: list[HostingFileEventListener] = list()
-        self.__semaphore_usage_update = asyncio.BoundedSemaphore(value=1)
+        self.__semaphore_usage_update = context.semaphore_usage_update
 
     async def run(self):
         await self.maintenance()
@@ -54,7 +54,7 @@ class HostingFileHandler:
         done, pending = await asyncio.wait([
             asyncio.create_task(self.__manage_file_list_thread()),
             asyncio.create_task(self.__manage_staging_thread()),
-            asyncio.create_task(self.__emit_status_thread()),
+            # asyncio.create_task(self.__emit_status_thread()),
         ], return_when=asyncio.FIRST_COMPLETED)
         if self.__context.stopping is False:
             self.__logger.error("Maintenant thread stopped out of turn")
@@ -170,8 +170,8 @@ class HostingFileHandler:
 
         # Increment filecount/file size
         try:
-            await update_file_usage(path_idmg, path_fuuid, self.__semaphore_usage_update)
-            await self.emit_event(idmg, 'newFuuid', {'fuuid': fuuid})
+            usage = await update_file_usage(path_idmg, path_fuuid, self.__semaphore_usage_update)
+            await self.emit_event(idmg, 'newFuuid', {'fuuid': fuuid, 'usage': usage})
         except:
             self.__logger.exception("Error udpating file usage information")
 
@@ -210,11 +210,8 @@ class HostingFileHandler:
         if path_idmg.exists() is False:
             return web.HTTPForbidden()  # IDMG is not hosted
 
-        path_usage_file = pathlib.Path(path_idmg, 'usage.json')
         try:
-            async with self.__semaphore_usage_update:
-                with open(path_usage_file, 'rt') as fp:
-                    usage = json.load(fp)
+            usage = await get_file_usage(path_idmg, self.__semaphore_usage_update)
         except FileNotFoundError:
             return web.HTTPNotFound()
         else:
@@ -223,33 +220,33 @@ class HostingFileHandler:
     async def __manage_file_list_thread(self):
         while self.__context.stopping is False:
             files_path = pathlib.Path(self.__context.configuration.dir_files)
-            await _manage_file_list(files_path, self.__semaphore_usage_update)
-            await self.__context.wait(CONST_REFRESH_LISTS)  # Every 12 hours
+            await _manage_file_list(files_path, self.__semaphore_usage_update, self.emit_event)
+            await self.__context.wait(CONST_REFRESH_LISTS_INTERVAl)
 
     async def __manage_staging_thread(self):
         while self.__context.stopping is False:
             files_path = pathlib.Path(self.__context.configuration.dir_files)
             await _manage_staging(files_path)
-            await self.__context.wait(CONST_MAINTAIN_STAGING)  # Every 12 hours
+            await self.__context.wait(CONST_MAINTAIN_STAGING_INTERVAL)  # Every 12 hours
 
-    async def __emit_status_thread(self):
-        while self.__context.stopping is False:
-            # Go through all idmg folders, load usage.json and emit on socket.io
-            path_files = pathlib.Path(self.__context.configuration.dir_files)
-            for f in path_files.iterdir():
-                if f.is_dir():
-                    idmg = f.name
-                    path_usage = pathlib.Path(f, 'usage.json')
-                    try:
-                        async with self.__semaphore_usage_update:
-                            with open(path_usage, 'rt+') as fp:
-                                usage = await asyncio.to_thread(json.load, fp)
-                        await self.emit_event(idmg, 'usage', usage)
-                    except FileNotFoundError:
-                        pass
-                    except json.JSONDecodeError as e:
-                        self.__logger.warning("Error opening usage.json for %s: %s" % (idmg, e))
-            await self.__context.wait(300)
+    # async def __emit_status_thread(self):
+    #     while self.__context.stopping is False:
+    #         # Go through all idmg folders, load usage.json and emit on socket.io
+    #         path_files = pathlib.Path(self.__context.configuration.dir_files)
+    #         for f in path_files.iterdir():
+    #             if f.is_dir():
+    #                 idmg = f.name
+    #                 path_usage = pathlib.Path(f, 'usage.json')
+    #                 try:
+    #                     async with self.__semaphore_usage_update:
+    #                         with open(path_usage, 'rt+') as fp:
+    #                             usage = await asyncio.to_thread(json.load, fp)
+    #                     await self.emit_event(idmg, 'usage', usage)
+    #                 except FileNotFoundError:
+    #                     pass
+    #                 except json.JSONDecodeError as e:
+    #                     self.__logger.warning("Error opening usage.json for %s: %s" % (idmg, e))
+    #         await self.__context.wait(3600 * 12)
 
     async def put_file_part(self, request: web.Request, cookie: Cookie) -> web.Response:
         # This is a read-write/admin level function. Ensure proper roles/security level
@@ -331,18 +328,18 @@ class HostingFileHandler:
             path_workfile.rename(path_fuuid)
 
             # Cleanup staging
-            await asyncio.to_thread(shutil_rmtree, path_fuuid_staging, ignore_errors=True)
+            await asyncio.to_thread(rmtree, path_fuuid_staging, ignore_errors=True)
         except ErreurHachage:
             # Cleanup fuuid staging, files are bad
-            await asyncio.to_thread(shutil_rmtree, path_fuuid_staging, ignore_errors=True)
+            await asyncio.to_thread(rmtree, path_fuuid_staging, ignore_errors=True)
             return web.HTTPFailedDependency()  # Staged content bad, has to be re-uploaded.
         finally:
             path_workfile.unlink(missing_ok=True)
 
         # Increment filecount/file size
         try:
-            await update_file_usage(path_idmg, path_fuuid, self.__semaphore_usage_update)
-            await self.emit_event(idmg, 'newFuuid', {'fuuid': fuuid})
+            usage = await update_file_usage(path_idmg, path_fuuid, self.__semaphore_usage_update)
+            await self.emit_event(idmg, 'newFuuid', {'fuuid': fuuid, 'usage': usage})
         except:
             self.__logger.exception("Error udpating file usage information")
 
@@ -416,10 +413,11 @@ async def iter_bucket_files(path_idmg: pathlib.Path):
     yield quota_information
 
 
-async def _manage_file_list(files_path: pathlib.Path, semaphore: asyncio.Semaphore):
+async def _manage_file_list(files_path: pathlib.Path, semaphore: asyncio.Semaphore, emit_event):
     # Creates an updated list of files for each managed idmg
     # Also calculates usage (quotas)
     for idmg_path in files_path.iterdir():
+        idmg = idmg_path.name
         if idmg_path.is_dir() is False:
             continue  # Skip
 
@@ -437,6 +435,10 @@ async def _manage_file_list(files_path: pathlib.Path, semaphore: asyncio.Semapho
                     async with semaphore:
                         with open(path_usage, 'wt') as output_usage:
                             await asyncio.to_thread(json.dump, bucket_info, output_usage)
+                            try:
+                                await emit_event(idmg, 'usage', bucket_info)
+                            except Exception as e:
+                                LOGGER.warning("Error emitting usage event: %s" % e)
 
         # Delete old file
         path_filelist.unlink(missing_ok=True)
@@ -483,12 +485,24 @@ async def _manage_staging(files_path: pathlib.Path):
             if item.is_file():
                 await asyncio.to_thread(item.unlink)
             elif item.is_dir():
-                await asyncio.to_thread(shutil_rmtree, item, ignore_errors=True)
+                await asyncio.to_thread(rmtree, item, ignore_errors=True)
             else:
                 LOGGER.warning("Unhandled stale item type: %s" % item)
 
 
-async def update_file_usage(path_idmg: pathlib.Path, path_fuuid: pathlib.Path, semaphore: asyncio.Semaphore):
+async def get_file_usage(path_idmg: pathlib.Path, semaphore: asyncio.Semaphore):
+    if path_idmg.exists() is False:
+        return web.HTTPForbidden()  # IDMG is not hosted
+
+    path_usage_file = pathlib.Path(path_idmg, 'usage.json')
+    async with semaphore:
+        with open(path_usage_file, 'rt') as fp:
+            usage = json.load(fp)
+
+    return usage
+
+
+async def update_file_usage(path_idmg: pathlib.Path, path_fuuid: pathlib.Path, semaphore: asyncio.Semaphore) -> dict:
     # Increment filecount/file size
     stat = path_fuuid.stat()
     file_size = stat.st_size
@@ -509,3 +523,5 @@ async def update_file_usage(path_idmg: pathlib.Path, path_fuuid: pathlib.Path, s
             with open(path_usage_file, 'wt') as fp:
                 usage_file = {'date': now, 'fuuid': {'count': 1, 'size': file_size}}
                 await asyncio.to_thread(json.dump, usage_file, fp)
+
+    return usage_file

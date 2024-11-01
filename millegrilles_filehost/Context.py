@@ -40,6 +40,7 @@ class FileHostContext:
         self.__ssl_context = _load_ssl_context(configuration)
         self.__secret_cookie_key = SECRET_COOKIE_KEY
         self.__sync_event = threading.Event()
+        self.__semaphore_usage_update = asyncio.BoundedSemaphore(value=1)
 
         signal.signal(signal.SIGINT, self.exit_gracefully)
         signal.signal(signal.SIGTERM, self.exit_gracefully)
@@ -107,6 +108,10 @@ class FileHostContext:
     @property
     def secret_cookie_key(self):
         return self.__secret_cookie_key
+
+    @property
+    def semaphore_usage_update(self):
+        return self.__semaphore_usage_update
 
 
 def _load_ssl_context(configuration: FileHostConfiguration) -> ssl.SSLContext:
