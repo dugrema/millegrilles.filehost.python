@@ -2,6 +2,7 @@ import asyncio
 import logging
 
 from aiohttp import web
+from nacl.exceptions import CryptoError
 
 from millegrilles_filehost import Constants
 from millegrilles_filehost.Context import FileHostContext
@@ -100,7 +101,7 @@ class WebRouteHandler:
     async def get_file_list(self, request: web.Request) -> web.Response:
         try:
             cookie = await self.decrypt_cookie(request)
-        except (ValueError, CookieExpired):
+        except (ValueError, CookieExpired, CryptoError):
             return web.HTTPUnauthorized()
         async with self.__handlers.semaphore_web:
             return await self.__handlers.hosting_file_handler.file_list(request, cookie)
@@ -108,7 +109,7 @@ class WebRouteHandler:
     async def get_file(self, request: web.Request) -> web.Response:
         try:
             cookie = await self.decrypt_cookie(request)
-        except (ValueError, CookieExpired):
+        except (ValueError, CookieExpired, CryptoError):
             return web.HTTPUnauthorized()
         async with self.__handlers.semaphore_file_get:
             return await self.__handlers.hosting_file_handler.get_file(request, cookie)
@@ -116,7 +117,7 @@ class WebRouteHandler:
     async def put_file(self, request: web.Request) -> web.Response:
         try:
             cookie = await self.decrypt_cookie(request)
-        except (ValueError, CookieExpired):
+        except (ValueError, CookieExpired, CryptoError):
             return web.HTTPUnauthorized()
         async with self.__handlers.semaphore_file_put:
             return await self.__handlers.hosting_file_handler.put_file(request, cookie)
@@ -124,7 +125,7 @@ class WebRouteHandler:
     async def delete_file(self, request: web.Request) -> web.Response:
         try:
             cookie = await self.decrypt_cookie(request)
-        except (ValueError, CookieExpired):
+        except (ValueError, CookieExpired, CryptoError):
             return web.HTTPUnauthorized()
         async with self.__handlers.semaphore_web:
             return await self.__handlers.hosting_file_handler.delete_file(request, cookie)
@@ -132,7 +133,7 @@ class WebRouteHandler:
     async def get_usage(self, request: web.Request) -> web.Response:
         try:
             cookie = await self.decrypt_cookie(request)
-        except (ValueError, CookieExpired):
+        except (ValueError, CookieExpired, CryptoError):
             return web.HTTPUnauthorized()
         async with self.__handlers.semaphore_web:
             return await self.__handlers.hosting_file_handler.get_usage(request, cookie)
@@ -140,7 +141,7 @@ class WebRouteHandler:
     async def put_file_part(self, request: web.Request) -> web.Response:
         try:
             cookie = await self.decrypt_cookie(request)
-        except (ValueError, CookieExpired):
+        except (ValueError, CookieExpired, CryptoError):
             return web.HTTPUnauthorized()
         async with self.__handlers.semaphore_file_put:
             return await self.__handlers.hosting_file_handler.put_file_part(request, cookie)
@@ -148,7 +149,7 @@ class WebRouteHandler:
     async def finish_file(self, request: web.Request) -> web.Response:
         try:
             cookie = await self.decrypt_cookie(request)
-        except (ValueError, CookieExpired):
+        except (ValueError, CookieExpired, CryptoError):
             return web.HTTPUnauthorized()
         async with self.__handlers.semaphore_file_put:
             return await self.__handlers.hosting_file_handler.finish_file(request, cookie)
@@ -164,7 +165,7 @@ class WebRouteHandler:
     async def put_backup_v2(self, request: web.Request) -> web.Response:
         try:
             cookie = await self.decrypt_cookie(request)
-        except (ValueError, CookieExpired):
+        except (ValueError, CookieExpired, CryptoError):
             return web.HTTPUnauthorized()
         async with self.__handlers.semaphore_backup:
             return await self.__handlers.hosting_backup_file_handler.put_backup_v2(request, cookie)
@@ -172,7 +173,7 @@ class WebRouteHandler:
     async def get_backup_v2_domain_list(self, request: web.Request) -> web.Response:
         try:
             cookie = await self.decrypt_cookie(request)
-        except (ValueError, CookieExpired):
+        except (ValueError, CookieExpired, CryptoError):
             return web.HTTPUnauthorized()
         async with self.__handlers.semaphore_backup:
             return await self.__handlers.hosting_backup_file_handler.get_backup_v2_domain_list(request, cookie)
@@ -180,7 +181,7 @@ class WebRouteHandler:
     async def get_backup_v2_versions_list(self, request: web.Request) -> web.Response:
         try:
             cookie = await self.decrypt_cookie(request)
-        except (ValueError, CookieExpired):
+        except (ValueError, CookieExpired, CryptoError):
             return web.HTTPUnauthorized()
         async with self.__handlers.semaphore_backup:
             return await self.__handlers.hosting_backup_file_handler.get_backup_v2_versions_list(request, cookie)
@@ -188,7 +189,7 @@ class WebRouteHandler:
     async def get_backup_v2_archives_list(self, request: web.Request) -> web.Response:
         try:
             cookie = await self.decrypt_cookie(request)
-        except (ValueError, CookieExpired):
+        except (ValueError, CookieExpired, CryptoError):
             return web.HTTPUnauthorized()
         async with self.__handlers.semaphore_backup:
             return await self.__handlers.hosting_backup_file_handler.get_backup_v2_archives_list(request, cookie)
@@ -196,7 +197,7 @@ class WebRouteHandler:
     async def get_backup_v2(self, request: web.Request) -> web.Response:
         try:
             cookie = await self.decrypt_cookie(request)
-        except (ValueError, CookieExpired):
+        except (ValueError, CookieExpired, CryptoError):
             return web.HTTPUnauthorized()
         async with self.__handlers.semaphore_backup:
             return await self.__handlers.hosting_backup_file_handler.get_backup_v2(request, cookie)
@@ -204,7 +205,7 @@ class WebRouteHandler:
     async def get_backup_v2_tar(self, request: web.Request) -> web.Response:
         try:
             cookie = await self.decrypt_cookie(request)
-        except (ValueError, CookieExpired):
+        except (ValueError, CookieExpired, CryptoError):
             return web.HTTPUnauthorized()
         async with self.__handlers.semaphore_backup:
             return await self.__handlers.hosting_backup_file_handler.get_backup_v2_tar(request, cookie)

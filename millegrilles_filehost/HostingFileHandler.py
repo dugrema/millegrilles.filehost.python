@@ -5,6 +5,7 @@ import json
 import math
 import pathlib
 import gzip
+import re
 
 from aiohttp import web
 from typing import Optional, Union
@@ -114,26 +115,17 @@ class HostingFileHandler:
 
         path_fuuid = get_fuuid_dir(path_idmg, fuuid)
         try:
-            stat = path_fuuid.stat()
-            with open(path_fuuid, 'rb') as fp:
-                response = web.StreamResponse(status=200)
-                response.content_length = stat.st_size
-                response.content_type = 'application/octet-stream'
-
-                await response.prepare(request)
-                while True:
-                    chunk = await asyncio.to_thread(fp.read, CONST_CHUNK_SIZE)
-                    if len(chunk) == 0:
-                        break
-                    await response.write(chunk)
-                await response.write_eof()
-                return response
+            return await stream_reponse(request, path_fuuid)
         except FileNotFoundError:
             return web.HTTPNotFound()
 
     async def put_file(self, request: web.Request, cookie: Cookie) -> web.Response:
         # This is a read-write function. Ensure proper roles/security level
-        if 'filecontroler' not in cookie.get('roles'):
+        if 'filecontroler' in cookie.get('roles'):
+            pass
+        elif 'usager' in cookie.get('roles') and cookie.get('user_id') is not None:
+            pass
+        else:
             return web.HTTPForbidden()
 
         idmg = cookie.idmg
@@ -251,7 +243,11 @@ class HostingFileHandler:
 
     async def put_file_part(self, request: web.Request, cookie: Cookie) -> web.Response:
         # This is a read-write/admin level function. Ensure proper roles/security level
-        if 'filecontroler' not in cookie.get('roles'):
+        if 'filecontroler' in cookie.get('roles'):
+            pass
+        elif 'usager' in cookie.get('roles') and cookie.get('user_id') is not None:
+            pass
+        else:
             return web.HTTPForbidden()
 
         idmg = cookie.idmg
@@ -289,7 +285,11 @@ class HostingFileHandler:
 
     async def finish_file(self, request: web.Request, cookie: Cookie) -> web.Response:
         # This is a read-write/admin level function. Ensure proper roles/security level
-        if 'filecontroler' not in cookie.get('roles'):
+        if 'filecontroler' in cookie.get('roles'):
+            pass
+        elif 'usager' in cookie.get('roles') and cookie.get('user_id') is not None:
+            pass
+        else:
             return web.HTTPForbidden()
 
         idmg = cookie.idmg
@@ -529,3 +529,118 @@ async def update_file_usage(path_idmg: pathlib.Path, path_fuuid: pathlib.Path, s
                 await asyncio.to_thread(json.dump, usage_file, fp)
 
     return usage_file
+
+
+async def stream_reponse(request: web.Request, filepath: pathlib.Path,
+                         size_limit: Optional[int] = None) -> Union[web.Response, web.StreamResponse]:
+    method = request.method
+    fuuid = request.match_info['fuuid']
+    headers = request.headers
+
+    range_bytes = headers.get('Range')
+
+    etag = fuuid[-16:]  # ETag requis pour caching, utiliser 16 derniers caracteres du fuuid
+
+    stat_fichier = filepath.stat()  # Throws FileNotFoundError
+
+    taille_fichier = stat_fichier.st_size
+    if size_limit is not None and taille_fichier > size_limit:
+        LOGGER.error(f"stream_reponse Taille fichier {fuuid} depasse limite {size_limit}")
+        return web.HTTPExpectationFailed()
+
+    range_str = None
+
+    headers_response = {
+        'Cache-Control': 'public, max-age=604800, immutable',
+        'Accept-Ranges': 'bytes',
+    }
+
+    if range_bytes is not None:
+        # Calculer le content range, taille transfert
+        range_parsed = parse_range(range_bytes, taille_fichier)
+        start = range_parsed['start']
+        end = range_parsed['end']
+        taille_transfert = str(end - start + 1)
+        range_str = f'bytes {start}-{end}/{taille_fichier}'
+        headers_response['Content-Range'] = range_str
+    else:
+        start = None
+        end = None
+        # Transferer tout le contenu
+        if taille_fichier:
+            taille_transfert = str(taille_fichier)
+        else:
+            taille_transfert = None
+
+    if range_str is not None:
+        status = 206
+    else:
+        status = 200
+
+    # Preparer reponse, headers
+    response = web.StreamResponse(status=status, headers=headers_response)
+    response.content_length = taille_transfert
+    response.content_type = 'application/stream'
+    response.etag = etag
+
+    LOGGER.info("stream_reponse Stream fichier %s : Content-Length : %s, Content-Range: %s" % (fuuid, taille_transfert, range_str))
+
+    await response.prepare(request)
+    if method == 'HEAD':
+        await response.write_eof()
+        return response
+
+    try:
+        with open(filepath, 'rb') as fp:
+            if start is not None and start > 0:
+                fp.seek(start, 0)
+                position = start
+            else:
+                position = 0
+
+            while True:
+                chunk = fp.read(64*1024)
+                if not chunk:
+                    break
+
+                if end is not None and position + len(chunk) > end:
+                    taille_chunk = end - position + 1
+                    await response.write(chunk[:taille_chunk])
+                    break  # Termine
+                else:
+                    await response.write(chunk)
+
+                position += len(chunk)
+    finally:
+        await response.write_eof()
+
+    return response
+
+
+def parse_range(range, taille_totale):
+    re_compiled = re.compile('bytes=([0-9]*)\\-([0-9]*)?')
+    m = re_compiled.search(range)
+
+    start = m.group(1)
+    if start is not None:
+        start = int(start)
+    else:
+        start = 0
+
+    end = m.group(2)
+    if end is None:
+        end = taille_totale - 1
+    else:
+        try:
+            end = int(end)
+            if end > taille_totale:
+                end = taille_totale - 1
+        except ValueError:
+            end = taille_totale - 1
+
+    result = {
+        'start': start,
+        'end': end,
+    }
+
+    return result
