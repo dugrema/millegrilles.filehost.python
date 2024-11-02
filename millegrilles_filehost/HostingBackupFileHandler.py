@@ -15,7 +15,7 @@ from millegrilles_messages.messages.Hachage import Hacheur
 from millegrilles_messages.utils.TarStream import stream_path_to_tar_async
 
 CONST_BACKUP_ROTATION_INTERVAL = 3_600 * 24     # Once a day
-
+CONST_ROLE_FILECONTROLER = 'filecontroler'
 
 class HostingBackupFileHandler:
 
@@ -41,7 +41,7 @@ class HostingBackupFileHandler:
         domains = cookie.get('domaines')
         if '4.secure' in cookie.get('exchanges') and domains is not None:
             pass
-        elif 'fichiers' in cookie.get('roles'):
+        elif CONST_ROLE_FILECONTROLER in cookie.get('roles'):
             pass
         else:
             return web.HTTPForbidden()
@@ -151,7 +151,7 @@ class HostingBackupFileHandler:
         # This is a read-write/admin level function. Ensure proper roles/security level
         if '4.secure' in cookie.get('exchanges') and cookie.get('domaines') is not None:
             pass
-        elif 'fichiers' in cookie.get('roles'):
+        elif CONST_ROLE_FILECONTROLER in cookie.get('roles'):
             pass
         else:
             return web.HTTPForbidden()
@@ -169,7 +169,7 @@ class HostingBackupFileHandler:
         # This is a read-write/admin level function. Ensure proper roles/security level
         if '4.secure' in cookie.get('exchanges') and cookie.get('domaines') is not None:
             pass
-        elif 'fichiers' in cookie.get('roles'):
+        elif CONST_ROLE_FILECONTROLER in cookie.get('roles'):
             pass
         else:
             return web.HTTPForbidden()
@@ -210,7 +210,7 @@ class HostingBackupFileHandler:
         # This is a read-write/admin level function. Ensure proper roles/security level
         if '4.secure' in cookie.get('exchanges') and cookie.get('domaines') is not None:
             pass
-        elif 'fichiers' in cookie.get('roles'):
+        elif CONST_ROLE_FILECONTROLER in cookie.get('roles'):
             pass
         else:
             return web.HTTPForbidden()
@@ -244,7 +244,7 @@ class HostingBackupFileHandler:
         # This is a read-write/admin level function. Ensure proper roles/security level
         if '4.secure' in cookie.get('exchanges') and cookie.get('domaines') is not None:
             pass
-        elif 'fichiers' in cookie.get('roles'):
+        elif CONST_ROLE_FILECONTROLER in cookie.get('roles'):
             pass
         else:
             return web.HTTPForbidden()
@@ -283,7 +283,7 @@ class HostingBackupFileHandler:
         # This is a read-write/admin level function. Ensure proper roles/security level
         if '4.secure' in cookie.get('exchanges') and cookie.get('domaines') is not None:
             pass
-        elif 'fichiers' in cookie.get('roles'):
+        elif CONST_ROLE_FILECONTROLER in cookie.get('roles'):
             pass
         else:
             return web.HTTPForbidden()
