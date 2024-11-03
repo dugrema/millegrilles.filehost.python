@@ -12,6 +12,7 @@ from typing import Optional, Union
 
 from shutil import rmtree
 
+from millegrilles_messages.messages import Constantes
 from millegrilles_filehost.Context import FileHostContext
 from millegrilles_filehost.CookieUtilities import Cookie
 from millegrilles_messages.messages.Hachage import VerificateurHachage, ErreurHachage
@@ -121,9 +122,14 @@ class HostingFileHandler:
 
     async def put_file(self, request: web.Request, cookie: Cookie) -> web.Response:
         # This is a read-write function. Ensure proper roles/security level
-        if 'filecontroler' in cookie.get('roles'):
+        roles = cookie.get('roles')
+        exchanges = cookie.get('exchanges')
+        user_id = cookie.get('user_id')
+        if roles and 'filecontroler' in roles:
             pass
-        elif 'usager' in cookie.get('roles') and cookie.get('user_id') is not None:
+        elif roles and exchanges and 'media' in roles and Constantes.SECURITE_PROTEGE in exchanges:
+            pass  # Media transcoder
+        elif roles and 'usager' in roles and user_id is not None:
             pass
         else:
             return web.HTTPForbidden()
@@ -243,12 +249,18 @@ class HostingFileHandler:
 
     async def put_file_part(self, request: web.Request, cookie: Cookie) -> web.Response:
         # This is a read-write/admin level function. Ensure proper roles/security level
-        if 'filecontroler' in cookie.get('roles'):
+        roles = cookie.get('roles')
+        exchanges = cookie.get('exchanges')
+        user_id = cookie.get('user_id')
+        if roles and 'filecontroler' in roles:
             pass
-        elif 'usager' in cookie.get('roles') and cookie.get('user_id') is not None:
+        elif roles and exchanges and 'media' in roles and Constantes.SECURITE_PROTEGE in exchanges:
+            pass  # Media transcoder
+        elif roles and 'usager' in roles and user_id is not None:
             pass
         else:
             return web.HTTPForbidden()
+
 
         idmg = cookie.idmg
         path_idmg = pathlib.Path(self.__context.configuration.dir_files, idmg)
@@ -285,9 +297,14 @@ class HostingFileHandler:
 
     async def finish_file(self, request: web.Request, cookie: Cookie) -> web.Response:
         # This is a read-write/admin level function. Ensure proper roles/security level
-        if 'filecontroler' in cookie.get('roles'):
+        roles = cookie.get('roles')
+        exchanges = cookie.get('exchanges')
+        user_id = cookie.get('user_id')
+        if roles and 'filecontroler' in roles:
             pass
-        elif 'usager' in cookie.get('roles') and cookie.get('user_id') is not None:
+        elif roles and exchanges and 'media' in roles and Constantes.SECURITE_PROTEGE in exchanges:
+            pass  # Media transcoder
+        elif roles and 'usager' in roles and user_id is not None:
             pass
         else:
             return web.HTTPForbidden()
