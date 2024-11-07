@@ -4,6 +4,7 @@ import aiohttp
 import socketio
 import logging
 import pathlib
+import json
 
 from typing import Optional
 from socketio.exceptions import ConnectionRefusedError
@@ -139,7 +140,21 @@ class SocketioHandler(StopListener):
 
     async def on_transfer_put(self, sid: str, command: dict):
         try:
+            enveloppe = await self.__authentication_handler.verify_auth_message(command)
+            idmg = enveloppe.idmg
+
+            # Ensure that IDMG exists
+
+
+            content = json.loads(command['contenu'])
+            fuuid = content['fuuid']
+
+            # Ensure that fuuid exists
+
             await self.__hosting_filetransfers.add_transfer(command)
             return {'ok': True}
         except asyncio.QueueFull:
             return {'ok': False, 'err': 'Queue full, try again later'}
+        except Exception as e:
+            self.__logger.exception("Unhandled exception")
+            return {'ok': False, 'err': str(e)}
