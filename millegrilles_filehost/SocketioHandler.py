@@ -69,8 +69,8 @@ class SocketioHandler(StopListener):
         self.__sio.on('disconnect', handler=self.on_disconnect)
 
         self.__sio.on('usage', handler=self.on_usage)
-        self.__sio.on('transfer_put', handler=self.on_transfer_put)
-        self.__sio.on('transfer_get', handler=self.on_transfer_get)
+        self.__sio.on('transfer_put', handler=self.__on_add_file_transfer)
+        self.__sio.on('transfer_get', handler=self.__on_add_file_transfer)
 
     async def on_connect(self, sid: str, environ: dict, auth: Optional[dict] = None):
         if auth is None:
@@ -128,30 +128,30 @@ class SocketioHandler(StopListener):
         else:
             return {'ok': True, 'usage': usage}
 
-    async def on_transfer_get(self, sid: str, command: dict):
-        try:
-            enveloppe = await self.__authentication_handler.verify_auth_message(command)
-            idmg = enveloppe.idmg
-
-            await self.__hosting_filetransfers.add_transfer(command)
-            return {'ok': True}
-        except asyncio.QueueFull:
-            return {'ok': False, 'err': 'Queue full, try again later'}
-
-    async def on_transfer_put(self, sid: str, command: dict):
+    async def __on_add_file_transfer(self, sid: str, command: dict):
         try:
             enveloppe = await self.__authentication_handler.verify_auth_message(command)
             idmg = enveloppe.idmg
 
             # Ensure that IDMG exists
+            path_idmg = pathlib.Path(self.__context.configuration.dir_files, idmg)
+            if path_idmg.exists() is False:
+                return {'ok': False, 'err': 'Access denied', 'code': 403}  # Access denied
 
+            action = command['routage']['action']
 
             content = json.loads(command['contenu'])
-            fuuid = content['fuuid']
 
-            # Ensure that fuuid exists
+            if action == 'putFile':
+                # Ensure that fuuid exists locally
+                fuuid = content['fuuid']
+                path_fuuid = pathlib.Path(path_idmg, 'buckets', fuuid[-2:], fuuid)
+                if path_fuuid.exists() is False:
+                    return {'ok': False, 'err': 'File not found', 'code': 404}  # Access denied
 
-            await self.__hosting_filetransfers.add_transfer(command)
+            transfer_command = {'command': command, 'idmg': idmg, 'enveloppe': enveloppe, 'action': action, 'content': content}
+
+            await self.__hosting_filetransfers.add_transfer(transfer_command)
             return {'ok': True}
         except asyncio.QueueFull:
             return {'ok': False, 'err': 'Queue full, try again later'}
