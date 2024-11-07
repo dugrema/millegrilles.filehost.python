@@ -17,6 +17,9 @@ from millegrilles_messages.messages.ValidateurMessage import ValidateurMessage
 LOGGER = logging.getLogger(__name__)
 
 
+CONST_AUTHENTICATION_ACTIONS = [Constants.CONST_AUTHENTICATE_ACTION, 'put_file', 'get_file']
+
+
 class AuthenticationHandler:
 
     def __init__(self, context: FileHostContext):
@@ -94,7 +97,7 @@ class AuthenticationHandler:
             routing = auth_message['routage']
             domain = routing['domaine']
             action = routing['action']
-            if action != Constants.CONST_AUTHENTICATE_ACTION or domain != Constants.CONST_DOMAIN_NAME:
+            if action not in CONST_AUTHENTICATION_ACTIONS or domain != Constants.CONST_DOMAIN_NAME:
                 raise ConnectionRefusedError()
         except KeyError:
             raise ConnectionRefusedError()

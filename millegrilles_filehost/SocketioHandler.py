@@ -1,3 +1,5 @@
+import asyncio
+
 import aiohttp
 import socketio
 import logging
@@ -7,6 +9,7 @@ from typing import Optional
 from socketio.exceptions import ConnectionRefusedError
 
 from millegrilles_filehost.HostingFileHandler import HostingFileEventListener, get_file_usage
+from millegrilles_filehost.HostingFileTransfers import HostfileFileTransfers
 from millegrilles_messages.messages import Constantes
 from millegrilles_filehost.AuthenticationHandler import AuthenticationHandler
 from millegrilles_filehost.Context import FileHostContext, StopListener
@@ -27,11 +30,12 @@ class SioListeners(HostingFileEventListener):
 
 class SocketioHandler(StopListener):
 
-    def __init__(self, context: FileHostContext, authentication_handler: AuthenticationHandler):
+    def __init__(self, context: FileHostContext, authentication_handler: AuthenticationHandler, hosting_filetransfers: HostfileFileTransfers):
         super().__init__()
         self.__logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
         self.__context = context
         self.__authentication_handler = authentication_handler
+        self.__hosting_filetransfers = hosting_filetransfers
         self.__sio = socketio.AsyncServer(async_mode='aiohttp', cors_allowed_origins='*')
         self.__app: Optional[aiohttp.web_app.Application] = None
         self.__idmg_event_listener = SioListeners(self.__sio)
@@ -64,6 +68,8 @@ class SocketioHandler(StopListener):
         self.__sio.on('disconnect', handler=self.on_disconnect)
 
         self.__sio.on('usage', handler=self.on_usage)
+        self.__sio.on('transfer_put', handler=self.on_transfer_put)
+        self.__sio.on('transfer_get', handler=self.on_transfer_get)
 
     async def on_connect(self, sid: str, environ: dict, auth: Optional[dict] = None):
         if auth is None:
@@ -120,3 +126,20 @@ class SocketioHandler(StopListener):
             return {'ok': False, 'err': 'No information'}
         else:
             return {'ok': True, 'usage': usage}
+
+    async def on_transfer_get(self, sid: str, command: dict):
+        try:
+            enveloppe = await self.__authentication_handler.verify_auth_message(command)
+            idmg = enveloppe.idmg
+
+            await self.__hosting_filetransfers.add_transfer(command)
+            return {'ok': True}
+        except asyncio.QueueFull:
+            return {'ok': False, 'err': 'Queue full, try again later'}
+
+    async def on_transfer_put(self, sid: str, command: dict):
+        try:
+            await self.__hosting_filetransfers.add_transfer(command)
+            return {'ok': True}
+        except asyncio.QueueFull:
+            return {'ok': False, 'err': 'Queue full, try again later'}
