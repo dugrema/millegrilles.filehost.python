@@ -3,6 +3,7 @@ import logging
 import pathlib
 
 from asyncio import TaskGroup
+from typing import Any, Awaitable, Optional, Coroutine, Callable
 from urllib.parse import urljoin
 
 import aiohttp
@@ -17,6 +18,10 @@ class HostfileFileTransfers:
         self.__logger = logging.getLogger(__name__+'.'+self.__class__.__name__)
         self.__context = context
         self.__transfer_queue = asyncio.Queue(maxsize=1)
+        self.__idmg_event_callback: Optional[Callable[[str, str, dict], Awaitable]] = None
+
+    def set_event_callback(self, callback: Callable[[str, str, dict], Awaitable]):
+        self.__idmg_event_callback = callback
 
     async def __clear_queue(self):
         while self.__transfer_queue.empty() is False:
@@ -41,11 +46,24 @@ class HostfileFileTransfers:
             if transfer is None:
                 break  # Exit condition
 
-            action = transfer['action']
+            try:
+                action = transfer['action']
+                idmg = transfer['idmg']
+                content = transfer['content']
+                fuuid = content['fuuid']
+                message_id = transfer['command']['id']
+            except KeyError:
+                self.__logger.error("Message missing parameters, skip: %s" % transfer)
+                continue
+
             if action == 'putFile':
                 try:
                     await self.__put_file(transfer)
-                except:
+                except Exception as e:
+                    await self.__idmg_event_callback(
+                        idmg, 'transfer_done',
+                        {'idmg': idmg, 'fuuid': fuuid, 'ok': False, 'err': str(e), 'command_id': message_id}
+                    )
                     self.__logger.exception("Unhandled transfer exception")
             else:
                 self.__logger.error("Unknown transfer action: %s" % action)
@@ -59,6 +77,7 @@ class HostfileFileTransfers:
         fuuid = content['fuuid']
         url = content['url']
         tls_mode = content.get('tls') or 'external'
+        message_id = transfer['command']['id']
 
         self.__logger.debug("PUT file %s to %s (TLS: %s)" % (fuuid, url, tls_mode))
         path_idmg = pathlib.Path(self.__context.configuration.dir_files, idmg)
@@ -88,5 +107,8 @@ class HostfileFileTransfers:
                     await file_upload_parts(session, url_put_file, updload_state, batch_size=4096)
 
                 self.__logger.debug("PUT complete for file %s to %s" % (fuuid, url))
-
+                await self.__idmg_event_callback(
+                    idmg, 'transfer_done',
+                    {'idmg': idmg, 'fuuid': fuuid, 'ok': True, 'done': True, 'command_id': message_id}
+                )
         pass
