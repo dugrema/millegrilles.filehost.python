@@ -210,7 +210,7 @@ class HostingFileHandler:
             return web.HTTPForbidden()  # IDMG is not hosted
 
         try:
-            usage = await get_file_usage(path_idmg, self.__semaphore_usage_update)
+            usage = await self.get_file_usage(idmg)
         except FileNotFoundError:
             return web.HTTPNotFound()
         else:
@@ -227,6 +227,13 @@ class HostingFileHandler:
             files_path = pathlib.Path(self.__context.configuration.dir_files)
             await _manage_staging(files_path)
             await self.__context.wait(CONST_MAINTAIN_STAGING_INTERVAL)  # Every 12 hours
+
+    async def get_file_usage(self, idmg: Union[str, pathlib.Path]):
+        if isinstance(idmg, pathlib.Path):
+            path_idmg = idmg
+        else:
+            path_idmg = pathlib.Path(self.__context.configuration.dir_files, idmg)
+        return await get_file_usage(path_idmg, self.__semaphore_usage_update)
 
     # async def __emit_status_thread(self):
     #     while self.__context.stopping is False:

@@ -148,6 +148,10 @@ class SocketioHandler(StopListener):
                 path_fuuid = pathlib.Path(path_idmg, 'buckets', fuuid[-2:], fuuid)
                 if path_fuuid.exists() is False:
                     return {'ok': False, 'err': 'File not found', 'code': 404}  # Access denied
+            elif action == 'getFile':
+                pass
+            else:
+                return {'ok': False, 'err': 'Unknown transfer action: %s' % action}
 
             transfer_command = {'command': command, 'idmg': idmg, 'enveloppe': enveloppe, 'action': action, 'content': content}
 
