@@ -1,4 +1,5 @@
 import asyncio
+import datetime
 import logging
 import pathlib
 
@@ -76,8 +77,9 @@ class HostfileFileTransfers:
         content = transfer['content']
         fuuid = content['fuuid']
         url = content['url']
+        filehost_id = content['filehost_id']
         tls_mode = content.get('tls') or 'external'
-        message_id = transfer['command']['id']
+        command_id = transfer['command']['id']
 
         self.__logger.debug("PUT file %s to %s (TLS: %s)" % (fuuid, url, tls_mode))
         path_idmg = pathlib.Path(self.__context.configuration.dir_files, idmg)
@@ -91,17 +93,17 @@ class HostfileFileTransfers:
             pass
 
             if action == 'getFile':
-                await self.__get_file(session, url, fuuid, path_idmg)
+                await self.__get_file(session, filehost_id, command_id, url, fuuid, path_idmg)
             elif action == 'putFile':
-                await self.__put_file(session, url, fuuid, path_idmg)
+                await self.__put_file(session, filehost_id, command_id, url, fuuid, path_idmg)
 
             self.__logger.debug("PUT complete for file %s to %s" % (fuuid, url))
             await self.__idmg_event_callback(
                 idmg, 'transfer_done',
-                {'idmg': idmg, 'fuuid': fuuid, 'ok': True, 'done': True, 'command_id': message_id}
+                {'idmg': idmg, 'fuuid': fuuid, 'ok': True, 'done': True, 'command_id': command_id}
             )
 
-    async def __get_file(self, session: aiohttp.ClientSession, url: str, fuuid: str, path_idmg: pathlib.Path):
+    async def __get_file(self, session: aiohttp.ClientSession, filehost_id: str, command_id: str, url: str, fuuid: str, path_idmg: pathlib.Path):
         # Open workfile
         path_work = pathlib.Path(path_idmg, 'staging', fuuid+'.work')
         path_fuuid = pathlib.Path(path_idmg, 'buckets', fuuid[-2:], fuuid)
@@ -122,19 +124,47 @@ class HostfileFileTransfers:
         if path_work.exists():
             raise NotImplementedError('todo - resume download')
 
+        next_update = datetime.datetime.now()
+
         with open(path_work, 'wb') as fp:
             async with session.get(url_get_file) as r:
                 r.raise_for_status()
 
+                transferred = 0
+                file_size = r.headers.get('Content-Length')
+
+                await self.__idmg_event_callback(
+                    idmg, 'transfer_update',
+                    {'fuuid': fuuid, 'transferred': 0, 'file_size': file_size, 'filehost_id': filehost_id}
+                )
+
                 async for chunk in r.content.iter_chunked(CONST_CHUNK_SIZE):
                     fp.write(chunk)
                     verifier.update(chunk)
+                    transferred += len(chunk)
+
+                    if next_update < datetime.datetime.now():
+                        await self.__idmg_event_callback(
+                            idmg, 'transfer_update',
+                            {'fuuid': fuuid, 'transferred': transferred, 'file_size': file_size, 'filehost_id': filehost_id, 'command_id': command_id}
+                        )
+                        next_update = datetime.datetime.now() + datetime.timedelta(seconds=5)
 
         try:
             verifier.verify()  # Raises exception if invalid
         except ErreurHachage as e:
             path_work.unlink()  # Get rid of corrupt work file
+            await self.__idmg_event_callback(
+                idmg, 'transfer_update',
+                {'fuuid': fuuid, 'transferred': 0, 'file_size': file_size, 'filehost_id': filehost_id, 'command_id': command_id,
+                 'done': True, 'err': 'Corrupt file'}
+            )
             raise e
+
+        await self.__idmg_event_callback(
+            idmg, 'transfer_update',
+            {'fuuid': fuuid, 'transferred': file_size, 'file_size': file_size, 'filehost_id': filehost_id, 'command_id': command_id, 'done': True}
+        )
 
         # Move file
         path_fuuid.parent.mkdir(parents=True, exist_ok=True)
@@ -147,19 +177,55 @@ class HostfileFileTransfers:
             {'fuuid': fuuid, 'usage': usage}
         )
 
-    async def __put_file(self, session: aiohttp.ClientSession, url: str, fuuid: str, path_idmg: pathlib.Path):
+    async def __put_file(self, session: aiohttp.ClientSession, filehost_id: str, command_id: str, url: str, fuuid: str, path_idmg: pathlib.Path):
         path_fuuid = pathlib.Path(path_idmg, 'buckets', fuuid[-2:], fuuid)
         stat_fuuid = path_fuuid.stat()
         file_size = stat_fuuid.st_size
 
+        idmg = path_idmg.name
+
         with open(path_fuuid, 'rb') as fp:
             url_put_file = urljoin(url, f'/filehost/files/{fuuid}')
-            # if file_size < 250 * 1024 * 1024:
+
+            await self.__idmg_event_callback(
+                idmg, 'transfer_update',
+                {'fuuid': fuuid, 'transferred': 0, 'file_size': file_size,
+                 'filehost_id': filehost_id, 'command_id': command_id}
+            )
+
+            # if file_size < 100 * 1024 * 1024:
             if file_size < 1:
                 # One-shot upload
                 async with session.put(url_put_file, data=fp, headers={'Content-Length': str(file_size)}) as r:
                     r.raise_for_status()
             else:
                 # Parts upload
-                updload_state = UploadState(fuuid, fp, file_size)
-                await file_upload_parts(session, url_put_file, updload_state, batch_size=4096)
+                upload_state = UploadState(fuuid, fp, file_size)
+                async with TaskGroup() as group:
+                    done_event = asyncio.Event()
+                    group.create_task(put_file_parts(session, url_put_file, upload_state, done_event))
+                    group.create_task(send_update(self.__idmg_event_callback, upload_state, filehost_id, command_id, idmg, fuuid, done_event))
+
+        await self.__idmg_event_callback(
+            idmg, 'transfer_update',
+            {'fuuid': fuuid, 'transferred': file_size, 'file_size': file_size, 'filehost_id': filehost_id, 'command_id': command_id, 'done': True}
+        )
+
+
+async def put_file_parts(session: aiohttp.ClientSession, url_put_file: str, upload_state: UploadState, done_event: asyncio.Event):
+    try:
+        await file_upload_parts(session, url_put_file, upload_state, batch_size=4096)
+    finally:
+        done_event.set()
+
+
+async def send_update(idmg_event_callback, upload_state: UploadState, filehost_id: str, command_id: str, idmg: str, fuuid: str, done_event: asyncio.Event):
+    while done_event.is_set() is False:
+        await idmg_event_callback(
+            idmg, 'transfer_update',
+            {'fuuid': fuuid, 'transferred': upload_state.position, 'file_size': upload_state.size, 'filehost_id': filehost_id, 'message_id': command_id}
+        )
+        try:
+            await asyncio.wait_for(done_event.wait(), 5)
+        except asyncio.TimeoutError:
+            pass
