@@ -15,6 +15,27 @@ from millegrilles_messages.messages.Hachage import VerificateurHachage, ErreurHa
 from millegrilles_messages.utils.FilePartUploader import UploadState, file_upload_parts
 
 CONST_CHUNK_SIZE = 1024 * 64
+CONST_PART_SIZE = 1024 * 1024 * 250
+
+
+class FileStreamer:
+
+    def __init__(self, fp, filepath: pathlib.Path):
+        self.fp = fp
+        self.filepath = filepath
+        self.state = filepath.stat()
+        self.position = 0
+        self.size = self.state.st_size
+
+    async def stream(self):
+        while True:
+            chunk = self.fp.read(CONST_CHUNK_SIZE)
+            if len(chunk) == 0:
+                break
+            self.position += len(chunk)
+            # await asyncio.sleep(5)  # Throttle for debug
+            yield chunk
+        pass
 
 
 class HostfileFileTransfers:
@@ -81,7 +102,7 @@ class HostfileFileTransfers:
         tls_mode = content.get('tls') or 'external'
         command_id = transfer['command']['id']
 
-        self.__logger.debug("PUT file %s to %s (TLS: %s)" % (fuuid, url, tls_mode))
+        self.__logger.debug("__transfer_file (%s) file %s to %s (TLS: %s)" % (action, fuuid, url, tls_mode))
         path_idmg = pathlib.Path(self.__context.configuration.dir_files, idmg)
 
         verify = tls_mode != 'nocheck'
@@ -193,9 +214,14 @@ class HostfileFileTransfers:
                  'filehost_id': filehost_id, 'command_id': command_id}
             )
 
-            # if file_size < 100 * 1024 * 1024:
-            if file_size < 1:
+            if file_size < CONST_PART_SIZE:
                 # One-shot upload
+                async with TaskGroup() as group:
+                    done_event = asyncio.Event()
+                    streamer = FileStreamer(fp, path_fuuid)
+                    group.create_task(put_file(session, url_put_file, streamer, done_event))
+                    group.create_task(send_update_streamer(self.__idmg_event_callback, streamer, filehost_id, command_id, idmg, fuuid, done_event))
+
                 async with session.put(url_put_file, data=fp, headers={'Content-Length': str(file_size)}) as r:
                     r.raise_for_status()
             else:
@@ -212,9 +238,32 @@ class HostfileFileTransfers:
         )
 
 
+async def put_file(session: aiohttp.ClientSession, url: str, streamer: FileStreamer, done_event: asyncio.Event):
+    try:
+        async with session.put(url, data=streamer.stream(), headers={'Content-Length': str(streamer.size)}) as r:
+            if r.status == 409:  # File already on server - OK
+                pass
+            else:
+                r.raise_for_status()
+    finally:
+        done_event.set()
+
+
+async def send_update_streamer(idmg_event_callback, streamer: FileStreamer, filehost_id: str, command_id: str, idmg: str, fuuid: str, done_event: asyncio.Event):
+    while done_event.is_set() is False:
+        await idmg_event_callback(
+            idmg, 'transfer_update',
+            {'fuuid': fuuid, 'transferred': streamer.position, 'file_size': streamer.size, 'filehost_id': filehost_id, 'command_id': command_id}
+        )
+        try:
+            await asyncio.wait_for(done_event.wait(), 5)
+        except asyncio.TimeoutError:
+            pass
+
+
 async def put_file_parts(session: aiohttp.ClientSession, url_put_file: str, upload_state: UploadState, done_event: asyncio.Event):
     try:
-        await file_upload_parts(session, url_put_file, upload_state, batch_size=4096)
+        await file_upload_parts(session, url_put_file, upload_state, batch_size=CONST_PART_SIZE)
     finally:
         done_event.set()
 
@@ -223,7 +272,7 @@ async def send_update(idmg_event_callback, upload_state: UploadState, filehost_i
     while done_event.is_set() is False:
         await idmg_event_callback(
             idmg, 'transfer_update',
-            {'fuuid': fuuid, 'transferred': upload_state.position, 'file_size': upload_state.size, 'filehost_id': filehost_id, 'message_id': command_id}
+            {'fuuid': fuuid, 'transferred': upload_state.position, 'file_size': upload_state.size, 'filehost_id': filehost_id, 'command_id': command_id}
         )
         try:
             await asyncio.wait_for(done_event.wait(), 5)
