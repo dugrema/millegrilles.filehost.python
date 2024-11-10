@@ -169,7 +169,7 @@ class HostingFileHandler:
 
         # Increment filecount/file size
         try:
-            usage = await update_file_usage(path_idmg, path_fuuid, self.__semaphore_usage_update)
+            usage = await self.update_file_usage(path_fuuid)
             await self.emit_event(idmg, 'newFuuid', {'fuuid': fuuid, 'usage': usage})
         except:
             self.__logger.exception("Error udpating file usage information")
@@ -234,25 +234,6 @@ class HostingFileHandler:
         else:
             path_idmg = pathlib.Path(self.__context.configuration.dir_files, idmg)
         return await get_file_usage(path_idmg, self.__semaphore_usage_update)
-
-    # async def __emit_status_thread(self):
-    #     while self.__context.stopping is False:
-    #         # Go through all idmg folders, load usage.json and emit on socket.io
-    #         path_files = pathlib.Path(self.__context.configuration.dir_files)
-    #         for f in path_files.iterdir():
-    #             if f.is_dir():
-    #                 idmg = f.name
-    #                 path_usage = pathlib.Path(f, 'usage.json')
-    #                 try:
-    #                     async with self.__semaphore_usage_update:
-    #                         with open(path_usage, 'rt+') as fp:
-    #                             usage = await asyncio.to_thread(json.load, fp)
-    #                     await self.emit_event(idmg, 'usage', usage)
-    #                 except FileNotFoundError:
-    #                     pass
-    #                 except json.JSONDecodeError as e:
-    #                     self.__logger.warning("Error opening usage.json for %s: %s" % (idmg, e))
-    #         await self.__context.wait(3600 * 12)
 
     async def put_file_part(self, request: web.Request, cookie: Cookie) -> web.Response:
         # This is a read-write/admin level function. Ensure proper roles/security level
@@ -363,12 +344,15 @@ class HostingFileHandler:
 
         # Increment filecount/file size
         try:
-            usage = await update_file_usage(path_idmg, path_fuuid, self.__semaphore_usage_update)
+            usage = await self.update_file_usage(path_fuuid)
             await self.emit_event(idmg, 'newFuuid', {'fuuid': fuuid, 'usage': usage})
         except:
             self.__logger.exception("Error udpating file usage information")
 
         return web.HTTPOk()
+
+    async def update_file_usage(self, path_fuuid: pathlib.Path):
+        return await update_file_usage(path_fuuid.parent.parent, path_fuuid, self.__semaphore_usage_update)
 
 
 async def receive_fuuid(request: web.Request, workfile_path: pathlib.Path, fuuid: Optional[str] = None):
@@ -546,7 +530,7 @@ async def update_file_usage(path_idmg: pathlib.Path, path_fuuid: pathlib.Path, s
                 usage_file['date'] = now
                 fp.seek(0)
                 await asyncio.to_thread(json.dump, usage_file, fp)
-                fp.truncate()
+                await asyncio.to_thread(fp.truncate)
         except FileNotFoundError:
             with open(path_usage_file, 'wt') as fp:
                 usage_file = {'date': now, 'fuuid': {'count': 1, 'size': file_size}}

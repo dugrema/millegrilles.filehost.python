@@ -166,7 +166,7 @@ class HostfileFileTransfersFuuids(HostfileFileTransfers):
             usage = await self.__hosting_file_handler.get_file_usage(path_idmg)
             await self._idmg_event_callback(
                 idmg, 'newFuuid',
-                {'fuuid': fuuid, 'usage': usage}
+                {'file': fuuid, 'usage': usage}
             )
 
         url_get_file = urljoin(url, f'/filehost/files/{fuuid}')
@@ -186,7 +186,7 @@ class HostfileFileTransfersFuuids(HostfileFileTransfers):
 
                 await self._idmg_event_callback(
                     idmg, 'transfer_update',
-                    {'fuuid': fuuid, 'transferred': 0, 'file_size': file_size, 'filehost_id': filehost_id}
+                    {'file': fuuid, 'transferred': 0, 'file_size': file_size, 'filehost_id': filehost_id}
                 )
 
                 async for chunk in r.content.iter_chunked(CONST_CHUNK_SIZE):
@@ -197,7 +197,7 @@ class HostfileFileTransfersFuuids(HostfileFileTransfers):
                     if next_update < datetime.datetime.now():
                         await self._idmg_event_callback(
                             idmg, 'transfer_update',
-                            {'fuuid': fuuid, 'transferred': transferred, 'file_size': file_size, 'filehost_id': filehost_id, 'command_id': command_id}
+                            {'file': fuuid, 'transferred': transferred, 'file_size': file_size, 'filehost_id': filehost_id, 'command_id': command_id}
                         )
                         next_update = datetime.datetime.now() + datetime.timedelta(seconds=5)
 
@@ -207,25 +207,27 @@ class HostfileFileTransfersFuuids(HostfileFileTransfers):
             path_work.unlink()  # Get rid of corrupt work file
             await self._idmg_event_callback(
                 idmg, 'transfer_update',
-                {'fuuid': fuuid, 'transferred': 0, 'file_size': file_size, 'filehost_id': filehost_id, 'command_id': command_id,
+                {'file': fuuid, 'transferred': 0, 'file_size': file_size, 'filehost_id': filehost_id, 'command_id': command_id,
                  'done': True, 'err': 'Corrupt file'}
             )
             raise e
 
         await self._idmg_event_callback(
             idmg, 'transfer_update',
-            {'fuuid': fuuid, 'transferred': file_size, 'file_size': file_size, 'filehost_id': filehost_id, 'command_id': command_id, 'done': True}
+            {'file': fuuid, 'transferred': file_size, 'file_size': file_size, 'filehost_id': filehost_id, 'command_id': command_id, 'done': True}
         )
 
         # Move file
         path_fuuid.parent.mkdir(parents=True, exist_ok=True)
         path_work.rename(path_fuuid)
 
+        # Increment file usage/count
+        usage = await self.__hosting_file_handler.update_file_usage(path_fuuid)
+
         idmg = path_idmg.name
-        usage = await self.__hosting_file_handler.get_file_usage(path_idmg)
         await self._idmg_event_callback(
             idmg, 'newFuuid',
-            {'fuuid': fuuid, 'usage': usage}
+            {'file': fuuid, 'usage': usage}
         )
 
     async def __put_file(self, session: aiohttp.ClientSession, filehost_id: str, command_id: str, url: str, fuuid: str, path_idmg: pathlib.Path):
@@ -240,7 +242,7 @@ class HostfileFileTransfersFuuids(HostfileFileTransfers):
 
             await self._idmg_event_callback(
                 idmg, 'transfer_update',
-                {'fuuid': fuuid, 'transferred': 0, 'file_size': file_size,
+                {'file': fuuid, 'transferred': 0, 'file_size': file_size,
                  'filehost_id': filehost_id, 'command_id': command_id}
             )
 
@@ -253,7 +255,12 @@ class HostfileFileTransfersFuuids(HostfileFileTransfers):
                     group.create_task(send_update_streamer(self._idmg_event_callback, streamer, filehost_id, command_id, idmg, fuuid, done_event))
 
                 async with session.put(url_put_file, data=fp, headers={'Content-Length': str(file_size)}) as r:
-                    r.raise_for_status()
+                    if r.status == 409:
+                        # File already on server, all done
+                        self.__logger.info("__put_file File fuuid:%s already on %s, DONE" % (fuuid, url))
+                        return
+                    else:
+                        r.raise_for_status()
             else:
                 # Parts upload
                 upload_state = UploadState(fuuid, fp, file_size)
@@ -264,7 +271,7 @@ class HostfileFileTransfersFuuids(HostfileFileTransfers):
 
         await self._idmg_event_callback(
             idmg, 'transfer_update',
-            {'fuuid': fuuid, 'transferred': file_size, 'file_size': file_size, 'filehost_id': filehost_id, 'command_id': command_id, 'done': True}
+            {'file': fuuid, 'transferred': file_size, 'file_size': file_size, 'filehost_id': filehost_id, 'command_id': command_id, 'done': True}
         )
 
 
@@ -371,7 +378,7 @@ class HostfileFileTransfersBackup(HostfileFileTransfers):
                 )
 
                 async for chunk in r.content.iter_chunked(CONST_CHUNK_SIZE):
-                    fp.write(chunk)
+                    await asyncio.to_thread(fp.write, chunk)
                     digester.update(chunk)
                     transferred += len(chunk)
 
