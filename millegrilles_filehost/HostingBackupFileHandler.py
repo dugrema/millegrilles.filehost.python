@@ -36,6 +36,9 @@ class HostingBackupFileHandler:
             files_path = pathlib.Path(self.__context.configuration.dir_files)
             await self.__context.wait(CONST_BACKUP_ROTATION_INTERVAL)  # Every 24 hours
 
+    def get_backup_file(self, idmg: str, domain: str, version: str, file: str):
+        return pathlib.Path(self.__context.configuration.dir_files, idmg, 'backup_v2', domain, version, file)
+
     async def put_backup_v2(self, request: web.Request, cookie: Cookie) -> Union[web.Response, web.StreamResponse]:
         # This is a read-write/admin level function. Ensure proper roles/security level
         domains = cookie.get('domaines')

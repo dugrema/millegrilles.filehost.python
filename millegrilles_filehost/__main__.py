@@ -9,7 +9,7 @@ from millegrilles_filehost.Configuration import FileHostConfiguration
 from millegrilles_filehost.Context import FileHostContext
 from millegrilles_filehost.HostingBackupFileHandler import HostingBackupFileHandler
 from millegrilles_filehost.HostingFileHandler import HostingFileHandler
-from millegrilles_filehost.HostingFileTransfers import HostfileFileTransfers
+from millegrilles_filehost.HostingFileTransfers import HostfileFileTransfersFuuids, HostfileFileTransfersBackup
 from millegrilles_filehost.SocketioHandler import SocketioHandler
 from millegrilles_filehost.WebRoutes import Handlers
 from millegrilles_filehost.WebServer import WebServer
@@ -51,8 +51,9 @@ def wiring(context: FileHostContext):
     authentication_handler = AuthenticationHandler(context)
     hosting_file_handler = HostingFileHandler(context)
     backup_file_handler = HostingBackupFileHandler(context)
-    hosting_file_transfers = HostfileFileTransfers(context, hosting_file_handler)
-    socketio_handler = SocketioHandler(context, authentication_handler, hosting_file_transfers)
+    hosting_file_transfers = HostfileFileTransfersFuuids(context, hosting_file_handler)
+    hosting_backup_file_transfers = HostfileFileTransfersBackup(context, backup_file_handler)
+    socketio_handler = SocketioHandler(context, authentication_handler, hosting_file_transfers, hosting_backup_file_transfers)
 
     handlers = Handlers(authentication_handler, hosting_file_handler, backup_file_handler, socketio_handler)
     web_server = WebServer(context, handlers)
@@ -62,6 +63,7 @@ def wiring(context: FileHostContext):
     sio_idmg_event_listener = socketio_handler.idmg_event_listener
     hosting_file_handler.add_event_listener(sio_idmg_event_listener)
     hosting_file_transfers.set_event_callback(sio_idmg_event_listener.on_event)
+    hosting_backup_file_transfers.set_event_callback(sio_idmg_event_listener.on_event)
 
     # Register listeners for the stop event
     # context.register_stop_listener(web_server)
@@ -76,6 +78,7 @@ def wiring(context: FileHostContext):
         backup_file_handler.run(),
         socketio_handler.run(),
         hosting_file_transfers.run(),
+        hosting_backup_file_transfers.run(),
     ]
 
     return threads
