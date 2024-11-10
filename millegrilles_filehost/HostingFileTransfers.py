@@ -93,36 +93,46 @@ class HostfileFileTransfersFuuids(HostfileFileTransfers):
         self.__hosting_file_handler = hosting_file_handler
 
     async def _transfer_thread(self):
-        while self._context.stopping is False:
-            transfer = await self._transfer_queue.get()
-            if transfer is None:
-                break  # Exit condition
+        try:
+            while self._context.stopping is False:
+                transfer = await self._transfer_queue.get()
+                if transfer is None:
+                    break  # Exit condition
 
-            try:
-                idmg = transfer['idmg']
-                content = transfer['content']
-                fuuid = content['fuuid']
-                url = content['url']
-                command_id = transfer['command']['id']
-            except KeyError:
-                self.__logger.error("Message missing parameters, skip: %s" % transfer)
-                continue
+                try:
+                    idmg = transfer['idmg']
+                    content = transfer['content']
+                    fuuid = content['fuuid']
+                    url = content['url']
+                    command_id = transfer['command']['id']
+                except KeyError:
+                    self.__logger.error("Message missing parameters, skip: %s" % transfer)
+                    continue
 
-            try:
-                self.__logger.debug("Transferring: %s" % transfer)
-                await self.__transfer_file(transfer)
-            except asyncio.CancelledError:
-                break  # Stopping
-            except aiohttp.ClientConnectorError as e:
-                self.__logger.exception("Connection error for file %s to %s" % (fuuid, url))
-                await self._emit_transfer_done(idmg, command_id, fuuid, err=str(e))
-            except Exception as e:
-                # await self.__idmg_event_callback(
-                #     idmg, 'transfer_done',
-                #     {'idmg': idmg, 'file': fuuid, 'ok': False, 'err': str(e), 'command_id': command_id}
-                # )
-                await self._emit_transfer_done(idmg, command_id, fuuid, err=str(e))
-                self.__logger.exception("Unhandled transfer exception")
+                try:
+                    self.__logger.debug("Transferring: %s" % transfer)
+                    await self.__transfer_file(transfer)
+                except asyncio.CancelledError:
+                    break  # Stopping
+                except aiohttp.ClientConnectorError as e:
+                    self.__logger.exception("Connection error for file %s to %s" % (fuuid, url))
+                    await self._emit_transfer_done(idmg, command_id, fuuid, err=str(e))
+                except Exception as e:
+                    self.__logger.exception("Unhandled transfer exception")
+                    # await self.__idmg_event_callback(
+                    #     idmg, 'transfer_done',
+                    #     {'idmg': idmg, 'file': fuuid, 'ok': False, 'err': str(e), 'command_id': command_id}
+                    # )
+                    try:
+                        await self._emit_transfer_done(idmg, command_id, fuuid, err=str(e))
+                    except Exception as e:
+                        self.__logger.warning("_emit_transfer_done Error: %s" % str(e))
+        except:
+            self.__logger.exception("_transfer_thread Fatal exception, stopping")
+        finally:
+            if self._context.stopping is False:
+                self.__logger.error("_transfer_thread stopping without context being stopped")
+                self._context.stop()
 
     async def __transfer_file(self, transfer: dict):
         action = transfer['action']
