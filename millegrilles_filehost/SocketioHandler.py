@@ -168,7 +168,7 @@ class SocketioHandler(StopListener):
             return {'ok': False, 'err': str(e)}
 
     async def confirm_transfer(self, idmg: str, fuuid: str, ok: bool, err: Optional[str] = None):
-        event = {'fuuid': fuuid, 'ok': True, 'done': True}
+        event = {'file': fuuid, 'ok': True, 'done': True}
         if err:
             event['err'] = err
         await self.idmg_event_listener.on_event(idmg, 'transfer', event)

@@ -170,7 +170,7 @@ class HostingFileHandler:
         # Increment filecount/file size
         try:
             usage = await self.update_file_usage(path_fuuid)
-            await self.emit_event(idmg, 'newFuuid', {'fuuid': fuuid, 'usage': usage})
+            await self.emit_event(idmg, 'newFuuid', {'file': fuuid, 'usage': usage})
         except:
             self.__logger.exception("Error udpating file usage information")
 
@@ -345,9 +345,9 @@ class HostingFileHandler:
         # Increment filecount/file size
         try:
             usage = await self.update_file_usage(path_fuuid)
-            await self.emit_event(idmg, 'newFuuid', {'fuuid': fuuid, 'usage': usage})
+            await self.emit_event(idmg, 'newFuuid', {'file': fuuid, 'usage': usage})
         except:
-            self.__logger.exception("Error udpating file usage information")
+            self.__logger.exception("Error updating file usage information")
 
         return web.HTTPOk()
 

@@ -116,7 +116,7 @@ class HostfileFileTransfersFuuids(HostfileFileTransfers):
             except Exception as e:
                 # await self.__idmg_event_callback(
                 #     idmg, 'transfer_done',
-                #     {'idmg': idmg, 'fuuid': fuuid, 'ok': False, 'err': str(e), 'command_id': command_id}
+                #     {'idmg': idmg, 'file': fuuid, 'ok': False, 'err': str(e), 'command_id': command_id}
                 # )
                 await self._emit_transfer_done(idmg, command_id, fuuid, err=str(e))
                 self.__logger.exception("Unhandled transfer exception")
@@ -150,7 +150,7 @@ class HostfileFileTransfersFuuids(HostfileFileTransfers):
             self.__logger.debug("GET/PUT complete for file %s to %s" % (fuuid, url))
             # await self.__idmg_event_callback(
             #     idmg, 'transfer_done',
-            #     {'idmg': idmg, 'fuuid': fuuid, 'ok': True, 'done': True, 'command_id': command_id}
+            #     {'idmg': idmg, 'file': fuuid, 'ok': True, 'done': True, 'command_id': command_id}
             # )
             await self._emit_transfer_done(idmg, command_id, fuuid)
 
@@ -510,7 +510,7 @@ async def send_update(idmg_event_callback, upload_state: UploadState, filehost_i
     while done_event.is_set() is False:
         await idmg_event_callback(
             idmg, 'transfer_update',
-            {'fuuid': fuuid, 'transferred': upload_state.position, 'file_size': upload_state.size,
+            {'file': fuuid, 'transferred': upload_state.position, 'file_size': upload_state.size,
              'filehost_id': filehost_id, 'command_id': command_id}
         )
         try:
