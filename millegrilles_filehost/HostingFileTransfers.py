@@ -269,14 +269,6 @@ class HostfileFileTransfersFuuids(HostfileFileTransfers):
                     streamer = FileStreamer(fp, path_fuuid)
                     group.create_task(put_file(session, url_put_file, streamer, done_event))
                     group.create_task(send_update_streamer(self._idmg_event_callback, streamer, filehost_id, command_id, idmg, fuuid, done_event))
-
-                async with session.put(url_put_file, data=fp, headers={'Content-Length': str(file_size)}) as r:
-                    if r.status == 409:
-                        # File already on server, all done
-                        self.__logger.info("__put_file File fuuid:%s already on %s, DONE" % (fuuid, url))
-                        return
-                    else:
-                        r.raise_for_status()
             else:
                 # Parts upload
                 upload_state = UploadState(fuuid, fp, file_size)
