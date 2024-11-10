@@ -68,6 +68,8 @@ class FileHostContext:
         for listener in self.__stop_listeners:
             try:
                 await listener.stop()
+            except asyncio.CancelledError:
+                break  # Stopping
             except Exception:
                 self.__logger.exception("Error stopping listener %s" % listener)
 

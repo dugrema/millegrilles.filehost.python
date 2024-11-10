@@ -111,8 +111,11 @@ class HostfileFileTransfersFuuids(HostfileFileTransfers):
             try:
                 self.__logger.debug("Transferring: %s" % transfer)
                 await self.__transfer_file(transfer)
-            except aiohttp.ClientConnectorError:
+            except asyncio.CancelledError:
+                break  # Stopping
+            except aiohttp.ClientConnectorError as e:
                 self.__logger.exception("Connection error for file %s to %s" % (fuuid, url))
+                await self._emit_transfer_done(idmg, command_id, fuuid, err=str(e))
             except Exception as e:
                 # await self.__idmg_event_callback(
                 #     idmg, 'transfer_done',
@@ -309,6 +312,8 @@ class HostfileFileTransfersBackup(HostfileFileTransfers):
             try:
                 self.__logger.debug("Transferring: %s" % transfer)
                 await self.__transfer_file(transfer)
+            except asyncio.CancelledError:
+                break  # Stopping
             except Exception as e:
                 self.__logger.exception("Unhandled transfer exception")
                 await self._emit_transfer_done(idmg, command_id, file, err=str(e))
