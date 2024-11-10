@@ -129,26 +129,44 @@ class HostingBackupFileHandler:
             path_file_work.rename(path_file)
 
             if header_archive['type_archive'] == 'C':
-                # Nouveau fichier concatene, on met a jour la version courante
-                # info_version = {'version': version, 'date': int(datetime.datetime.now(datetime.UTC).timestamp())}
-                fin_backup_secs = math.floor(header_archive['fin_backup'] / 1000)
-                info_version = {'version': version, 'date': fin_backup_secs}
-                path_fichier_info = pathlib.Path(path_version, 'info.json')
-                with open(path_fichier_info, 'wt') as fichier:
-                    await asyncio.to_thread(json.dump, info_version, fichier)
-
-                # Remplacer le fichier courant.json
-                path_fichier_courant = pathlib.Path(path_domain, 'courant.json')
-                path_fichier_courant.unlink(missing_ok=True)
-                with open(path_fichier_info, 'rb') as src:
-                    content = await asyncio.to_thread(src.read)
-                with open(path_fichier_courant, 'wb') as output:
-                    await asyncio.to_thread(output.write, content)
+                await self.create_info_files(path_domain, header_archive, version)
+                # # Nouveau fichier concatene, on met a jour la version courante
+                # # info_version = {'version': version, 'date': int(datetime.datetime.now(datetime.UTC).timestamp())}
+                # fin_backup_secs = math.floor(header_archive['fin_backup'] / 1000)
+                # info_version = {'version': version, 'date': fin_backup_secs}
+                # path_fichier_info = pathlib.Path(path_version, 'info.json')
+                # with open(path_fichier_info, 'wt') as fichier:
+                #     await asyncio.to_thread(json.dump, info_version, fichier)
+                #
+                # # Remplacer le fichier courant.json
+                # path_fichier_courant = pathlib.Path(path_domain, 'courant.json')
+                # path_fichier_courant.unlink(missing_ok=True)
+                # with open(path_fichier_info, 'rb') as src:
+                #     content = await asyncio.to_thread(src.read)
+                # with open(path_fichier_courant, 'wb') as output:
+                #     await asyncio.to_thread(output.write, content)
         finally:
             # Cleanup
             await asyncio.to_thread(path_file_work.unlink, missing_ok=True)
 
         return web.HTTPOk()
+
+    async def create_info_files(self, path_domain: pathlib.Path, header_archive: dict, version: str):
+        # Nouveau fichier concatene, on met a jour la version courante
+        path_version = pathlib.Path(path_domain, version)
+        fin_backup_secs = math.floor(header_archive['fin_backup'] / 1000)
+        info_version = {'version': version, 'date': fin_backup_secs}
+        path_fichier_info = pathlib.Path(path_version, 'info.json')
+        with open(path_fichier_info, 'wt') as fichier_info:
+            await asyncio.to_thread(json.dump, info_version, fichier_info)
+
+        # Remplacer le fichier courant.json
+        path_fichier_courant = pathlib.Path(path_domain, 'courant.json')
+        path_fichier_courant.unlink(missing_ok=True)
+        with open(path_fichier_info, 'rb') as src:
+            content = await asyncio.to_thread(src.read)
+        with open(path_fichier_courant, 'wb') as output:
+            await asyncio.to_thread(output.write, content)
 
     async def get_backup_v2_domain_list(self, request: web.Request, cookie: Cookie) -> Union[web.Response, web.StreamResponse]:
         # This is a read-write/admin level function. Ensure proper roles/security level

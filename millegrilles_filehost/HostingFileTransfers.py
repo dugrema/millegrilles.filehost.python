@@ -9,6 +9,7 @@ from urllib.parse import urljoin
 
 import aiohttp
 
+from millegrilles_filehost.BackupV2 import lire_header_archive_backup
 from millegrilles_filehost.Context import FileHostContext
 from millegrilles_filehost.HostingBackupFileHandler import HostingBackupFileHandler
 from millegrilles_filehost.HostingFileHandler import HostingFileHandler
@@ -350,11 +351,10 @@ class HostfileFileTransfersBackup(HostfileFileTransfers):
             return
 
         # url_get_file = urljoin(url, f'/filehost/files/{fuuid}')
-        # verifier = VerificateurHachage(fuuid)
         digester = Hacheur('blake2b-512', 'base58btc')
 
         if path_work.exists():
-            raise NotImplementedError('todo - resume download')
+            path_work.unlink()  # For now just restart download. Eventually do a resume.
 
         next_update = datetime.datetime.now()
 
@@ -387,7 +387,7 @@ class HostfileFileTransfersBackup(HostfileFileTransfers):
         suffix_digest_file = file.split('.')[0].split('_').pop()
         if digest_value.endswith(suffix_digest_file) is False:
             # Get rid of corrupt work file
-            path_work.unlink()
+            path_work.unlink()  # Delete file
             await self._idmg_event_callback(
                 idmg, 'transfer_update',
                 {'file': file, 'transferred': 0, 'file_size': file_size, 'filehost_id': filehost_id, 'command_id': command_id,
@@ -395,14 +395,32 @@ class HostfileFileTransfersBackup(HostfileFileTransfers):
             )
             raise Exception('Downloaded backup file %s is corrupt' % file)
 
+        with open(path_work, 'rb') as backup_file:
+            # Lire le header du fichier de backup
+            header_archive = await asyncio.to_thread(lire_header_archive_backup, backup_file)
+        if header_archive['domaine'] != domain:
+            # Wrong domain, reject file
+            path_work.unlink()  # Delete file
+            raise Exception('Downloaded backup file header has wrong domain, reject %s' % file)
+
+        char_type_archive = header_archive['type_archive']
+
+        # File seems good, ensure folder exists
+        path_file.parent.mkdir(parents=True, exist_ok=True)
+
+        if char_type_archive == 'C':
+            # Create info.json/courant.json if this is a C file
+            path_domain = path_file.parent.parent
+            await self.__backup_file_handler.create_info_files(path_domain, header_archive, version)
+
+        # Move file
+        path_work.rename(path_file)
+
         await self._idmg_event_callback(
             idmg, 'transfer_update',
             {'file': file, 'transferred': file_size, 'file_size': file_size, 'filehost_id': filehost_id, 'command_id': command_id, 'done': True}
         )
 
-        # Move file
-        path_file.parent.mkdir(parents=True, exist_ok=True)
-        path_work.rename(path_file)
 
     async def __put_backup_file(self, session: aiohttp.ClientSession, filehost_id: str, command_id: str, url: str,
                                 domain: str, version: str, file: str, path_idmg: pathlib.Path):
