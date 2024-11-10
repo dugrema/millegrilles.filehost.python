@@ -352,7 +352,8 @@ class HostingFileHandler:
         return web.HTTPOk()
 
     async def update_file_usage(self, path_fuuid: pathlib.Path):
-        return await update_file_usage(path_fuuid.parent.parent, path_fuuid, self.__semaphore_usage_update)
+        path_idmg = path_fuuid.parent.parent.parent
+        return await update_file_usage(path_idmg, path_fuuid, self.__semaphore_usage_update)
 
 
 async def receive_fuuid(request: web.Request, workfile_path: pathlib.Path, fuuid: Optional[str] = None):
