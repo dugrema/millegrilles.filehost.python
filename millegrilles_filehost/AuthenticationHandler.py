@@ -17,7 +17,7 @@ from millegrilles_messages.messages.ValidateurMessage import ValidateurMessage
 LOGGER = logging.getLogger(__name__)
 
 
-CONST_AUTHENTICATION_ACTIONS = [Constants.CONST_AUTHENTICATE_ACTION, 'putFile', 'getFile']
+CONST_AUTHENTICATION_ACTIONS = [Constants.CONST_AUTHENTICATE_ACTION, 'putFile', 'getFile', 'putBackupFile', 'getBackupFile']
 
 
 class AuthenticationHandler:
