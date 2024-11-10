@@ -102,6 +102,7 @@ class HostfileFileTransfersFuuids(HostfileFileTransfers):
                 idmg = transfer['idmg']
                 content = transfer['content']
                 fuuid = content['fuuid']
+                url = content['url']
                 command_id = transfer['command']['id']
             except KeyError:
                 self.__logger.error("Message missing parameters, skip: %s" % transfer)
@@ -110,6 +111,8 @@ class HostfileFileTransfersFuuids(HostfileFileTransfers):
             try:
                 self.__logger.debug("Transferring: %s" % transfer)
                 await self.__transfer_file(transfer)
+            except aiohttp.ClientConnectorError:
+                self.__logger.exception("Connection error for file %s to %s" % (fuuid, url))
             except Exception as e:
                 # await self.__idmg_event_callback(
                 #     idmg, 'transfer_done',
