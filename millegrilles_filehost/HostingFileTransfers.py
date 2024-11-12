@@ -193,6 +193,9 @@ class HostfileFileTransfersFuuids(HostfileFileTransfers):
 
         next_update = datetime.datetime.now()
 
+        # Ensure work dirs exist
+        path_work.parent.mkdir(parents=True, exist_ok=True)
+
         with open(path_work, 'wb') as fp:
             async with session.get(url_get_file) as r:
                 r.raise_for_status()
