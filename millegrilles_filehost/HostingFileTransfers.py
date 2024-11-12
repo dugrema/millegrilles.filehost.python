@@ -183,7 +183,6 @@ class HostfileFileTransfersFuuids(HostfileFileTransfers):
             verifier = await self.__get_file_resume(path_work, session, url_get_file, idmg, filehost_id, command_id, fuuid)
         else:
             verifier = await self.__get_file_fromstart(path_work, session, url_get_file, idmg, filehost_id, command_id, fuuid)
-            raise Exception('tada')
 
         try:
             verifier.verify()  # Raises exception if invalid
@@ -256,8 +255,11 @@ class HostfileFileTransfersFuuids(HostfileFileTransfers):
 
         start_position = stat_file.st_size
 
+        fp = None
         try:
-            async with session.get(url_get_file) as r:
+            headers = {'Range': 'bytes=%d-' % start_position}
+
+            async with session.get(url_get_file, headers=headers) as r:
                 r.raise_for_status()
                 file_size = int(r.headers.get('Content-Length'))
                 if r.status == 206:

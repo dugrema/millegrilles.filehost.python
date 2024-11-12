@@ -627,6 +627,7 @@ async def stream_reponse(request: web.Request, filepath: pathlib.Path,
 
 
 def parse_range(range, taille_totale):
+    # Range: bytes=1234-2000, or bytes=1234-
     re_compiled = re.compile('bytes=([0-9]*)\\-([0-9]*)?')
     m = re_compiled.search(range)
 
