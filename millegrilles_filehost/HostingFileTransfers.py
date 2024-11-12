@@ -375,6 +375,9 @@ class HostfileFileTransfersBackup(HostfileFileTransfers):
 
         next_update = datetime.datetime.now()
 
+        # Ensure work path exists
+        path_work.parent.mkdir(parents=True, exist_ok=True)
+
         with open(path_work, 'wb') as fp:
             async with session.get(url) as r:
                 r.raise_for_status()
@@ -443,10 +446,8 @@ class HostfileFileTransfersBackup(HostfileFileTransfers):
                                 domain: str, version: str, file: str, path_idmg: pathlib.Path):
         idmg = path_idmg.name
 
-        # Open workfile
-        path_work = pathlib.Path(path_idmg, 'staging', file+'.work')
+        # Ensure file already exists
         path_file = self.__backup_file_handler.get_backup_file(idmg, domain, version, file)
-
         if path_file.exists() is False:
             # Unknown file, cannnot PUT.
             self.__logger.error("Received PUT backup file for unknown file %s, abort" % file)
