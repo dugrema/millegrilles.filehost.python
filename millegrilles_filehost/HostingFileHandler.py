@@ -566,7 +566,11 @@ async def stream_reponse(request: web.Request, filepath: pathlib.Path,
 
     if range_bytes is not None:
         # Calculer le content range, taille transfert
-        range_parsed = parse_range(range_bytes, taille_fichier)
+        try:
+            range_parsed = parse_range(range_bytes, taille_fichier)
+        except AttributeError:
+            LOGGER.info("Query with Range that has invalid values")
+            return web.HTTPClientError()
         start = range_parsed['start']
         end = range_parsed['end']
         taille_transfert = str(end - start + 1)
