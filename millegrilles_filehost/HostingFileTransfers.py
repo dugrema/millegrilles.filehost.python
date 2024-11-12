@@ -161,10 +161,6 @@ class HostfileFileTransfersFuuids(HostfileFileTransfers):
                 await self.__put_file(session, filehost_id, command_id, url, fuuid, path_idmg)
 
             self.__logger.debug("GET/PUT complete for file %s to %s" % (fuuid, url))
-            # await self.__idmg_event_callback(
-            #     idmg, 'transfer_done',
-            #     {'idmg': idmg, 'file': fuuid, 'ok': True, 'done': True, 'command_id': command_id}
-            # )
             await self._emit_transfer_done(idmg, command_id, fuuid)
 
     async def _emit_transfer_done(self, idmg: str, command_id: str, file: str, err: Optional[str] = None):
@@ -180,45 +176,14 @@ class HostfileFileTransfersFuuids(HostfileFileTransfers):
         if path_fuuid.exists():
             # File already transferred. Report as done.
             usage = await self.__hosting_file_handler.get_file_usage(path_idmg)
-            await self._idmg_event_callback(
-                idmg, 'newFuuid',
-                {'file': fuuid, 'usage': usage}
-            )
+            await self._idmg_event_callback(idmg, 'newFuuid', {'file': fuuid, 'usage': usage})
 
         url_get_file = urljoin(url, f'/filehost/files/{fuuid}')
-        verifier = VerificateurHachage(fuuid)
-
         if path_work.exists():
-            raise NotImplementedError('todo - resume download')
-
-        next_update = datetime.datetime.now()
-
-        # Ensure work dirs exist
-        path_work.parent.mkdir(parents=True, exist_ok=True)
-
-        with open(path_work, 'wb') as fp:
-            async with session.get(url_get_file) as r:
-                r.raise_for_status()
-
-                transferred = 0
-                file_size = r.headers.get('Content-Length')
-
-                await self._idmg_event_callback(
-                    idmg, 'transfer_update',
-                    {'file': fuuid, 'transferred': 0, 'file_size': file_size, 'filehost_id': filehost_id}
-                )
-
-                async for chunk in r.content.iter_chunked(CONST_CHUNK_SIZE):
-                    fp.write(chunk)
-                    verifier.update(chunk)
-                    transferred += len(chunk)
-
-                    if next_update < datetime.datetime.now():
-                        await self._idmg_event_callback(
-                            idmg, 'transfer_update',
-                            {'file': fuuid, 'transferred': transferred, 'file_size': file_size, 'filehost_id': filehost_id, 'command_id': command_id}
-                        )
-                        next_update = datetime.datetime.now() + datetime.timedelta(seconds=5)
+            verifier = await self.__get_file_resume(path_work, session, url_get_file, idmg, filehost_id, command_id, fuuid)
+        else:
+            verifier = await self.__get_file_fromstart(path_work, session, url_get_file, idmg, filehost_id, command_id, fuuid)
+            raise Exception('tada')
 
         try:
             verifier.verify()  # Raises exception if invalid
@@ -226,11 +191,11 @@ class HostfileFileTransfersFuuids(HostfileFileTransfers):
             path_work.unlink()  # Get rid of corrupt work file
             await self._idmg_event_callback(
                 idmg, 'transfer_update',
-                {'file': fuuid, 'transferred': 0, 'file_size': file_size, 'filehost_id': filehost_id, 'command_id': command_id,
-                 'done': True, 'err': 'Corrupt file'}
+                {'file': fuuid, 'filehost_id': filehost_id, 'command_id': command_id, 'done': True, 'err': 'Corrupt file'}
             )
             raise e
 
+        file_size = path_work.stat().st_size
         await self._idmg_event_callback(
             idmg, 'transfer_update',
             {'file': fuuid, 'transferred': file_size, 'file_size': file_size, 'filehost_id': filehost_id, 'command_id': command_id, 'done': True}
@@ -244,10 +209,87 @@ class HostfileFileTransfersFuuids(HostfileFileTransfers):
         usage = await self.__hosting_file_handler.update_file_usage(path_fuuid)
 
         idmg = path_idmg.name
+        await self._idmg_event_callback(idmg, 'newFuuid', {'file': fuuid, 'usage': usage})
+
+    async def __get_file_fromstart(self, path_work: pathlib.Path, session: aiohttp.ClientSession, url_get_file: str,
+                                   idmg: str, filehost_id: str, command_id: str, fuuid: str) -> VerificateurHachage:
+        # Ensure work dirs exist
+        path_work.parent.mkdir(parents=True, exist_ok=True)
+        verifier = VerificateurHachage(fuuid)
+        with open(path_work, 'wb') as fp:
+            async with session.get(url_get_file) as r:
+                r.raise_for_status()
+
+                file_size = int(r.headers.get('Content-Length'))
+                await self.__getting_file(idmg, fuuid, 0, file_size, filehost_id, fp, r, command_id, verifier)
+
+        return verifier
+
+    async def __getting_file(self, idmg: str, fuuid: str, position: int, file_size: int, filehost_id: str, fp,
+                             response: aiohttp.ClientResponse, command_id: str, verifier: Optional[VerificateurHachage] = None):
+
+        next_update = datetime.datetime.now()
+
         await self._idmg_event_callback(
-            idmg, 'newFuuid',
-            {'file': fuuid, 'usage': usage}
+            idmg, 'transfer_update',
+            {'file': fuuid, 'transferred': position, 'file_size': file_size, 'filehost_id': filehost_id}
         )
+
+        async for chunk in response.content.iter_chunked(CONST_CHUNK_SIZE):
+            fp.write(chunk)
+            if verifier:
+                verifier.update(chunk)
+            position += len(chunk)
+
+            if next_update < datetime.datetime.now():
+                await self._idmg_event_callback(
+                    idmg, 'transfer_update',
+                    {'file': fuuid, 'transferred': position, 'file_size': file_size,
+                     'filehost_id': filehost_id, 'command_id': command_id}
+                )
+                next_update = datetime.datetime.now() + datetime.timedelta(seconds=5)
+
+    async def __get_file_resume(self, path_work: pathlib.Path, session: aiohttp.ClientSession, url_get_file: str,
+                                idmg: str, filehost_id: str, command_id: str, fuuid: str) -> VerificateurHachage:
+
+        stat_file = path_work.stat()
+
+        start_position = stat_file.st_size
+
+        try:
+            async with session.get(url_get_file) as r:
+                r.raise_for_status()
+                file_size = int(r.headers.get('Content-Length'))
+                if r.status == 206:
+                    # Resuming
+                    fp = open(path_work, 'ab')
+                    verifier = None
+                elif r.status == 200:
+                    # Can't resume, restarting file
+                    self.__logger.warning("Failed to resume file %s, restarting GET from start" % fuuid)
+                    fp = open(path_work, 'wb')
+                    verifier = VerificateurHachage(fuuid)
+                else:
+                    raise Exception('Wrong status code: %d' % r.status)
+
+                await self.__getting_file(idmg, fuuid, start_position, file_size, filehost_id, fp, r, command_id, verifier)
+
+        finally:
+            if fp:
+                fp.close()
+
+        if verifier is None:
+            # Verify file content from start
+            verifier = VerificateurHachage(fuuid)
+            with open(path_work, 'rb') as fp:
+                while True:
+                    chunk = await asyncio.to_thread(fp.read, CONST_CHUNK_SIZE)
+                    if len(chunk) == 0:
+                        break
+                    verifier.update(chunk)
+            return verifier
+        else:
+            return verifier
 
     async def __put_file(self, session: aiohttp.ClientSession, filehost_id: str, command_id: str, url: str, fuuid: str, path_idmg: pathlib.Path):
         path_fuuid = pathlib.Path(path_idmg, 'buckets', fuuid[-2:], fuuid)
