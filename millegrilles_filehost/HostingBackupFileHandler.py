@@ -219,7 +219,28 @@ class HostingBackupFileHandler:
                     try:
                         with open(path_info, 'rt') as fichier:
                             info_version = json.load(fichier)
+
+                        headers = extraire_headers(path_uuid_backup)
+                        transactions_total = 0
+                        concatene_start_date = 0
+                        concatene_end_date = 0
+                        end_date = 0
+                        for h in headers:
+                            transactions_total += h.get('nombre_transactions')
+                            if h.get('type_archive') == 'C':
+                                transactions_total += h.get('nombre_transactions')
+                                concatene_start_date = int(h.get('debut_backup') / 1000)
+                                concatene_end_date = int(h.get('fin_backup') / 1000)
+                            if end_date < h.get('fin_backup'):
+                                end_date = h['fin_backup']
+
+                        info_version['start_date'] = concatene_start_date
+                        info_version['end_date'] = int(end_date / 1000)
+                        info_version['end_date_concatene'] = concatene_end_date
+                        info_version['transactions'] = transactions_total
+
                         versions.append(info_version)
+
                     except FileNotFoundError:
                         self.__logger.info("Version backup %s : aucun fichier info.json" % path_info)
                     except json.JSONDecodeError:
