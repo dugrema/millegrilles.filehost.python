@@ -29,7 +29,7 @@ class CookieExpired(Exception):
 
 
 def generate_cookie(secret_cookie_key: bytes, response: web.Response, idmg: str, user_id: Optional[str], roles: Optional[list[str]],
-                    exchanges: Optional[list[str]], domaines: Optional[list[str]]):
+                    exchanges: Optional[list[str]], domaines: Optional[list[str]], delegation_globale: Optional[str]):
     duration = datetime.timedelta(hours=1)
     expiration = datetime.datetime.now() + duration
     expiration_epoch = int(expiration.timestamp())
@@ -43,6 +43,8 @@ def generate_cookie(secret_cookie_key: bytes, response: web.Response, idmg: str,
         cookie_session['exchanges'] = exchanges
     if domaines:
         cookie_session['domaines'] = domaines
+    if delegation_globale:
+        cookie_session['delegation_globale'] = delegation_globale
     cookie_bytes = json.dumps(cookie_session).encode('utf-8')
 
     box = secret.SecretBox(secret_cookie_key)

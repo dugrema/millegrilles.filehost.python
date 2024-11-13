@@ -71,9 +71,13 @@ class AuthenticationHandler:
                 response['user_id'] = user_id
             except ExtensionNotFound:
                 user_id = None
+            try:
+                delegation_globale = enveloppe.get_delegation_globale
+            except ExtensionNotFound:
+                delegation_globale = None
 
             response = web.json_response(response)
-            self.generate_cookie(response, idmg, user_id, roles, exchanges, domaines)
+            self.generate_cookie(response, idmg, user_id, roles, exchanges, domaines, delegation_globale)
             return response
 
     async def logout(self, request: web.Request) -> web.Response :
@@ -81,8 +85,9 @@ class AuthenticationHandler:
         response.del_cookie(Constants.CONST_SESSION_COOKIE_NAME)
         return response
 
-    def generate_cookie(self, response: web.Response, idmg, user_id: Optional[str], roles: Optional[list[str]], exchanges: Optional[list[str]], domaines: Optional[list[str]]):
-        generate_cookie(self.__context.secret_cookie_key, response, idmg, user_id, roles, exchanges, domaines)
+    def generate_cookie(self, response: web.Response, idmg, user_id: Optional[str], roles: Optional[list[str]],
+                        exchanges: Optional[list[str]], domaines: Optional[list[str]], delegation_globale: Optional[str]):
+        generate_cookie(self.__context.secret_cookie_key, response, idmg, user_id, roles, exchanges, domaines, delegation_globale)
 
     async def verify_auth_message(self, auth_message: dict) -> EnveloppeCertificat:
         estampille = auth_message['estampille']

@@ -8,6 +8,7 @@ import math
 from aiohttp import web
 from typing import Union
 
+from millegrilles_messages.messages import Constantes
 from millegrilles_filehost.BackupV2 import lire_header_archive_backup, get_backup_v2_domaines, extraire_headers
 from millegrilles_filehost.Context import FileHostContext
 from millegrilles_filehost.CookieUtilities import Cookie
@@ -304,9 +305,15 @@ class HostingBackupFileHandler:
 
     async def get_backup_v2_tar(self, request: web.Request, cookie: Cookie) -> Union[web.Response, web.StreamResponse]:
         # This is a read-write/admin level function. Ensure proper roles/security level
-        if '4.secure' in cookie.get('exchanges') and cookie.get('domaines') is not None:
+        exchanges = cookie.get('exchanges') or list()
+        domaines = cookie.get('domaines') or list()
+        roles = cookie.get('roles') or list()
+        delegation_globale = cookie.get('delegation_globale')
+        if '4.secure' in exchanges and domaines is not None:
             pass
-        elif CONST_ROLE_FILECONTROLER in cookie.get('roles'):
+        elif CONST_ROLE_FILECONTROLER in roles:
+            pass
+        elif delegation_globale == Constantes.DELEGATION_GLOBALE_PROPRIETAIRE:
             pass
         else:
             return web.HTTPForbidden()
