@@ -1,4 +1,4 @@
-FROM docker.maple.maceroc.com:5000/millegrilles_messages_python:2024.8.67
+FROM docker.maple.maceroc.com:5000/millegrilles_messages_python:2024.8.69
 
 ARG VBUILD=2024.8.0
 
