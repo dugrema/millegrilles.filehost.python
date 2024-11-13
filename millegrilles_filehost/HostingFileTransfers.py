@@ -4,7 +4,7 @@ import logging
 import pathlib
 
 from asyncio import TaskGroup
-from typing import Any, Awaitable, Optional, Coroutine, Callable, BinaryIO
+from typing import Awaitable, Optional, Callable
 from urllib.parse import urljoin
 
 import aiohttp
@@ -38,6 +38,20 @@ class FileStreamer:
             # await asyncio.sleep(5)  # Throttle for debug
             yield chunk
         pass
+
+
+class GetTransferStatus:
+
+    def __init__(self, filehost_id: str, command_id: str, idmg: str, fuuid: str, url_file: str):
+        self.filehost_id = filehost_id
+        self.command_id = command_id
+        self.idmg = idmg
+        self.fuuid = fuuid
+        self.url_file = url_file
+
+        self.stop_event = asyncio.Event()
+        self.position = 0
+        self.file_size: Optional[int] = None
 
 
 class HostfileFileTransfers:
@@ -179,10 +193,11 @@ class HostfileFileTransfersFuuids(HostfileFileTransfers):
             await self._idmg_event_callback(idmg, 'newFuuid', {'file': fuuid, 'usage': usage})
 
         url_get_file = urljoin(url, f'/filehost/files/{fuuid}')
+        get_status = GetTransferStatus(filehost_id, command_id, idmg, fuuid, url_get_file)
         if path_work.exists():
-            verifier = await self.__get_file_resume(path_work, session, url_get_file, idmg, filehost_id, command_id, fuuid)
+            verifier = await self.__get_file_resume(path_work, session, get_status)
         else:
-            verifier = await self.__get_file_fromstart(path_work, session, url_get_file, idmg, filehost_id, command_id, fuuid)
+            verifier = await self.__get_file_fromstart(path_work, session, get_status)
 
         try:
             verifier.verify()  # Raises exception if invalid
@@ -210,46 +225,59 @@ class HostfileFileTransfersFuuids(HostfileFileTransfers):
         idmg = path_idmg.name
         await self._idmg_event_callback(idmg, 'newFuuid', {'file': fuuid, 'usage': usage})
 
-    async def __get_file_fromstart(self, path_work: pathlib.Path, session: aiohttp.ClientSession, url_get_file: str,
-                                   idmg: str, filehost_id: str, command_id: str, fuuid: str) -> VerificateurHachage:
+    async def __get_file_fromstart(self, path_work: pathlib.Path, session: aiohttp.ClientSession, get_status: GetTransferStatus) -> VerificateurHachage:
         # Ensure work dirs exist
         path_work.parent.mkdir(parents=True, exist_ok=True)
-        verifier = VerificateurHachage(fuuid)
+        verifier = VerificateurHachage(get_status.fuuid)
         with open(path_work, 'wb') as fp:
-            async with session.get(url_get_file) as r:
+            async with session.get(get_status.url_file) as r:
                 r.raise_for_status()
 
                 file_size = int(r.headers.get('Content-Length'))
-                await self.__getting_file(idmg, fuuid, 0, file_size, filehost_id, fp, r, command_id, verifier)
+                get_status.file_size = file_size
+                await self.__getting_file(get_status, fp, r, verifier)
 
         return verifier
 
-    async def __getting_file(self, idmg: str, fuuid: str, position: int, file_size: int, filehost_id: str, fp,
-                             response: aiohttp.ClientResponse, command_id: str, verifier: Optional[VerificateurHachage] = None):
 
-        next_update = datetime.datetime.now()
+    async def __getting_file(self, get_status: GetTransferStatus, fp,
+                             response: aiohttp.ClientResponse, verifier: Optional[VerificateurHachage] = None):
+        # Create a download task and a task to update the file controler regularly to avoid a timeout
+        async with TaskGroup() as group:
+            group.create_task(self.__getting_file_update_events(get_status))
+            group.create_task(self.__getting_file_download(get_status, fp, response, verifier))
 
+    async def __getting_file_update_events(self, get_status: GetTransferStatus):
         await self._idmg_event_callback(
-            idmg, 'transfer_update',
-            {'file': fuuid, 'transferred': position, 'file_size': file_size, 'filehost_id': filehost_id}
+            get_status.idmg, 'transfer_update',
+            {'file': get_status.fuuid, 'transferred': get_status.position, 'file_size': get_status.file_size, 'filehost_id': get_status.filehost_id}
         )
 
-        async for chunk in response.content.iter_chunked(CONST_CHUNK_SIZE):
-            fp.write(chunk)
-            if verifier:
-                verifier.update(chunk)
-            position += len(chunk)
+        while get_status.stop_event.is_set() is False:
+            await self._idmg_event_callback(
+                get_status.idmg, 'transfer_update',
+                {'file': get_status.fuuid, 'transferred': get_status.position, 'file_size': get_status.file_size,
+                 'filehost_id': get_status.filehost_id, 'command_id':get_status.command_id}
+            )
+            try:
+                await asyncio.wait_for(get_status.stop_event.wait(), 5)
+                return  # Done
+            except asyncio.TimeoutError:
+                pass  # Loop
 
-            if next_update < datetime.datetime.now():
-                await self._idmg_event_callback(
-                    idmg, 'transfer_update',
-                    {'file': fuuid, 'transferred': position, 'file_size': file_size,
-                     'filehost_id': filehost_id, 'command_id': command_id}
-                )
-                next_update = datetime.datetime.now() + datetime.timedelta(seconds=5)
+    async def __getting_file_download(self, get_status: GetTransferStatus, fp, response: aiohttp.ClientResponse,
+                                      verifier: Optional[VerificateurHachage] = None):
 
-    async def __get_file_resume(self, path_work: pathlib.Path, session: aiohttp.ClientSession, url_get_file: str,
-                                idmg: str, filehost_id: str, command_id: str, fuuid: str) -> VerificateurHachage:
+        try:
+            async for chunk in response.content.iter_chunked(CONST_CHUNK_SIZE):
+                fp.write(chunk)
+                if verifier:
+                    verifier.update(chunk)
+                get_status.position += len(chunk)
+        finally:
+            get_status.stop_event.set()  # Release the update_events task
+
+    async def __get_file_resume(self, path_work: pathlib.Path, session: aiohttp.ClientSession, get_status: GetTransferStatus) -> VerificateurHachage:
 
         stat_file = path_work.stat()
 
@@ -259,22 +287,24 @@ class HostfileFileTransfersFuuids(HostfileFileTransfers):
         try:
             headers = {'Range': 'bytes=%d-' % start_position}
 
-            async with session.get(url_get_file, headers=headers) as r:
-                r.raise_for_status()
-                file_size = int(r.headers.get('Content-Length'))
-                if r.status == 206:
+            async with session.get(get_status.url_file, headers=headers) as response:
+                response.raise_for_status()
+                file_size = int(response.headers.get('Content-Length'))
+                get_status.file_size = file_size
+                if response.status == 206:
                     # Resuming
                     fp = open(path_work, 'ab')
                     verifier = None
-                elif r.status == 200:
+                    get_status.position = start_position   # Resume at position
+                elif response.status == 200:
                     # Can't resume, restarting file
-                    self.__logger.warning("Failed to resume file %s, restarting GET from start" % fuuid)
+                    self.__logger.warning("Failed to resume file %s, restarting GET from start" % get_status.fuuid)
                     fp = open(path_work, 'wb')
-                    verifier = VerificateurHachage(fuuid)
+                    verifier = VerificateurHachage(get_status.fuuid)
                 else:
-                    raise Exception('Wrong status code: %d' % r.status)
+                    raise Exception('Wrong status code: %d' % response.status)
 
-                await self.__getting_file(idmg, fuuid, start_position, file_size, filehost_id, fp, r, command_id, verifier)
+                await self.__getting_file(get_status, fp, response, verifier)
 
         finally:
             if fp:
@@ -282,7 +312,7 @@ class HostfileFileTransfersFuuids(HostfileFileTransfers):
 
         if verifier is None:
             # Verify file content from start
-            verifier = VerificateurHachage(fuuid)
+            verifier = VerificateurHachage(get_status.fuuid)
             with open(path_work, 'rb') as fp:
                 while True:
                     chunk = await asyncio.to_thread(fp.read, CONST_CHUNK_SIZE)
@@ -572,3 +602,4 @@ async def send_update(idmg_event_callback, upload_state: UploadState, filehost_i
             await asyncio.wait_for(done_event.wait(), 5)
         except asyncio.TimeoutError:
             pass
+
