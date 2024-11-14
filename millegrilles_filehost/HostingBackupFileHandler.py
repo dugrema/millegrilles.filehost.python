@@ -186,7 +186,8 @@ class HostingBackupFileHandler:
         path_backup = pathlib.Path(path_idmg, 'backup_v2')
         stats = request.query.get('stats') == 'true'
         cles = request.query.get('cles') == 'true'
-        domains = await get_backup_v2_domaines(path_backup, stats=stats, cles=cles)
+        version = request.query.get('version')
+        domains = await get_backup_v2_domaines(path_backup, stats=stats, cles=cles, version=version)
         return web.json_response({'domaines': domains})
 
     async def get_backup_v2_versions_list(self, request: web.Request, cookie: Cookie) -> Union[web.Response, web.StreamResponse]:

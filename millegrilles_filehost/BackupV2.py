@@ -6,6 +6,8 @@ import pathlib
 import math
 
 from io import BufferedReader
+from multiprocessing.managers import Value
+
 from aiohttp import ClientSession
 from ssl import SSLContext
 from typing import Optional
@@ -285,7 +287,9 @@ async def backup_v2_listes_fichiers(path_backups: pathlib.Path, session: ClientS
     return list(fichiers_distant), fichiers_manquants_remote
 
 
-async def get_backup_v2_domaines(path_backup: pathlib.Path, domaines: Optional[list[str]] = None, courant=True, stats=False, cles=False):
+async def get_backup_v2_domaines(path_backup: pathlib.Path, domaines: Optional[list[str]] = None,
+                                 stats=False, cles=False, version: Optional[str] = None):
+
     domaines_reponse = []
 
     for rep_domaine in path_backup.iterdir():
@@ -296,25 +300,35 @@ async def get_backup_v2_domaines(path_backup: pathlib.Path, domaines: Optional[l
 
         if rep_domaine.is_dir():
             LOGGER.debug("Domain %s" % nom_domaine)
-            domaine = {'domaine': nom_domaine}
+
+            if version:  # Version is specified
+                version_courante = version
+                path_version = pathlib.Path(rep_domaine, version_courante)
+                path_info = pathlib.Path(rep_domaine, version, 'info.json')
+                try:
+                    with open(path_info, 'rt') as fichier:
+                        info_courant = json.load(fichier)
+                except FileNotFoundError:
+                    continue  # No such version, skip
+            else:
+                path_info = pathlib.Path(rep_domaine, 'courant.json')
+                try:
+                    with open(path_info, 'rt') as fichier:
+                        info_courant = json.load(fichier)
+                    version_courante = info_courant['version']
+                    path_version = pathlib.Path(rep_domaine, version_courante)
+                except FileNotFoundError:
+                    # Pas d'information sur le backup courant
+                    info_courant = {'version': 'NEW'}
+                    version_courante = None
+                    path_version = None
+
+            domaine = {'domaine': nom_domaine, 'concatene': info_courant}
             domaines_reponse.append(domaine)
 
-            path_courant = pathlib.Path(rep_domaine, 'courant.json')
-            try:
-                with open(path_courant, 'rt') as fichier:
-                    info_courant = json.load(fichier)
-            except FileNotFoundError:
-                # Pas d'information sur le backup courant
-                info_courant = {'version': 'NEW'}
-
-            domaine['concatene'] = info_courant
-
-            if courant is not True:
-                raise NotImplementedError('todo')
-
-            if stats is not False or cles is not False:
-                version_courante = info_courant['version']
-                path_version = pathlib.Path(rep_domaine, version_courante)
+            if stats is not False or cles is not False and path_version:
+                # version_courante = info_courant['version']
+                # path_version = pathlib.Path(rep_domaine, version_courante)
                 # Parcourir tous les fichiers de la version
                 compteur_transactions = 0
                 date_plus_recent = 0
