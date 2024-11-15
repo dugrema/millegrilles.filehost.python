@@ -52,7 +52,7 @@ def generate_cookie(secret_cookie_key: bytes, response: web.Response, idmg: str,
     cookie_b64 = base64.b64encode(cookie_encrypted).decode('utf-8')
 
     response.set_cookie(Constants.CONST_SESSION_COOKIE_NAME, cookie_b64,
-                        max_age=max_age, httponly=True, secure=True)
+                        max_age=max_age, httponly=True, secure=True, samesite='None')
 
 def decrypt_cookie(secret_cookie_key: bytes, cookie: str) -> Cookie:
     cookie_bytes = base64.b64decode(cookie)
