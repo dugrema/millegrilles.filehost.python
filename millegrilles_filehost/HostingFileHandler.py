@@ -225,8 +225,11 @@ class HostingFileHandler:
     async def __manage_staging_thread(self):
         while self.__context.stopping is False:
             files_path = pathlib.Path(self.__context.configuration.dir_files)
-            await _manage_staging(files_path)
-            await self.__context.wait(CONST_MAINTAIN_STAGING_INTERVAL)  # Every 12 hours
+            try:
+                await _manage_staging(files_path)
+            except:
+                self.__logger.exception("__manage_staging_thread Error cleaning up staging")
+            await self.__context.wait(CONST_MAINTAIN_STAGING_INTERVAL)  # Every hour
 
     async def get_file_usage(self, idmg: Union[str, pathlib.Path]):
         if isinstance(idmg, pathlib.Path):
