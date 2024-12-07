@@ -160,13 +160,13 @@ class WebRouteHandler:
             return await self.__handlers.hosting_file_handler.finish_file(request, cookie)
 
     async def extract_authentication(self, request: web.Request) -> Cookie:
+        jwt = request.headers.get('X-Token-Jwt') or request.query.get('jwt')
         cookie = request.cookies.get(Constants.CONST_SESSION_COOKIE_NAME)
-        jwt = request.headers.get('X-jwt') or request.query.get('jwt')
 
-        if cookie is not None:
-            verified_values = decrypt_cookie(self.__context.secret_cookie_key, cookie)
-        elif jwt is not None:
+        if jwt is not None:
             verified_values = verify_jwt(self.__context.private_jwt_key.public_key(), jwt)
+        elif cookie is not None:
+            verified_values = decrypt_cookie(self.__context.secret_cookie_key, cookie)
         else:
             raise ValueError()
 

@@ -117,7 +117,7 @@ class AuthenticationHandler:
                 delegation_globale = None
 
             jwt = generate_jwt(self.__context.private_jwt_key, idmg, user_id, roles, exchanges, domaines, delegation_globale)
-            return web.json_response({'jwt': jwt})
+            return web.json_response({'ok': True, 'jwt': jwt})
 
     async def logout(self, request: web.Request) -> web.Response :
         response = web.HTTPOk()

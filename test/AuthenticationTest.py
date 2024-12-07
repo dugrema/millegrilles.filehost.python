@@ -108,7 +108,7 @@ async def authenticate_2_jwt(formatteur: FormatteurMessageMilleGrilles, ca: Enve
 
         jwt = json_response['jwt']
 
-        headers = {'X-jwt': jwt}
+        headers = {'X-Token-Jwt': jwt}
         async with session.get(url_get_files, headers=headers) as r:
             r.raise_for_status()
             print("Headers = %s" % r.headers)
