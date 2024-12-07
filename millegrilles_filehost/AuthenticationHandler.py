@@ -9,7 +9,7 @@ from socketio.exceptions import ConnectionRefusedError
 
 from millegrilles_filehost import Constants
 from millegrilles_filehost.Context import FileHostContext
-from millegrilles_filehost.CookieUtilities import generate_cookie
+from millegrilles_filehost.CookieUtilities import generate_cookie, generate_jwt
 from millegrilles_messages.messages.EnveloppeCertificat import EnveloppeCertificat
 from millegrilles_messages.messages.ValidateurCertificats import ValidateurCertificatCache
 from millegrilles_messages.messages.ValidateurMessage import ValidateurMessage
@@ -80,6 +80,45 @@ class AuthenticationHandler:
             self.generate_cookie(response, idmg, user_id, roles, exchanges, domaines, delegation_globale)
             return response
 
+    async def authenticate_jwt(self, request: web.Request) -> web.Response :
+        auth_message = await request.json()
+        try:
+            enveloppe = await self.verify_auth_message(auth_message)
+            idmg = enveloppe.idmg
+        except Exception:
+            self.__logger.exception("Error validating auth request")
+            return web.HTTPForbidden()
+        else:
+            # Create a new session, return cookie and JWT (if requested)
+            response = {'ok': True, 'idmg': idmg}
+            try:
+                roles = enveloppe.get_roles
+                response['roles'] = roles
+            except ExtensionNotFound:
+                roles = None
+            try:
+                domaines = enveloppe.get_domaines
+                response['domaines'] = domaines
+            except ExtensionNotFound:
+                domaines = None
+            try:
+                exchanges = enveloppe.get_exchanges
+                response['exchanges'] = exchanges
+            except ExtensionNotFound:
+                exchanges = None
+            try:
+                user_id = enveloppe.get_user_id
+                response['user_id'] = user_id
+            except ExtensionNotFound:
+                user_id = None
+            try:
+                delegation_globale = enveloppe.get_delegation_globale
+            except ExtensionNotFound:
+                delegation_globale = None
+
+            jwt = generate_jwt(self.__context.private_jwt_key, idmg, user_id, roles, exchanges, domaines, delegation_globale)
+            return web.json_response({'jwt': jwt})
+
     async def logout(self, request: web.Request) -> web.Response :
         response = web.HTTPOk()
         response.del_cookie(Constants.CONST_SESSION_COOKIE_NAME)
@@ -88,6 +127,10 @@ class AuthenticationHandler:
     def generate_cookie(self, response: web.Response, idmg, user_id: Optional[str], roles: Optional[list[str]],
                         exchanges: Optional[list[str]], domaines: Optional[list[str]], delegation_globale: Optional[str]):
         generate_cookie(self.__context.secret_cookie_key, response, idmg, user_id, roles, exchanges, domaines, delegation_globale)
+
+    def generate_jwt(self, idmg, user_id: Optional[str], roles: Optional[list[str]], exchanges: Optional[list[str]],
+                     domaines: Optional[list[str]], delegation_globale: Optional[str]):
+        return generate_jwt(self.__context.secret_cookie_key, idmg, user_id, roles, exchanges, domaines, delegation_globale)
 
     async def verify_auth_message(self, auth_message: dict) -> EnveloppeCertificat:
         estampille = auth_message['estampille']

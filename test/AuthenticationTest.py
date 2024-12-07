@@ -1,7 +1,12 @@
 import asyncio
+import ssl
+from asyncio.sslproto import SSLProtocol
+
 import aiohttp
 import pathlib
 import logging
+
+from ssl import SSLContext, VerifyMode
 
 from millegrilles_messages.messages import Constantes
 from millegrilles_messages.messages.CleCertificat import CleCertificat
@@ -10,9 +15,9 @@ from millegrilles_messages.messages.EnveloppeCertificat import EnveloppeCertific
 from millegrilles_messages.utils.FilePartUploader import file_upload_parts, UploadState
 
 PATH_FICHIERS_CERT = '/var/opt/millegrilles/secrets/pki.filecontroler.cert'
-PATH_FICHIERS_CLE = '/var/opt/millegrilles/secrets/pki.filecontroler.cle'
+PATH_FICHIERS_CLE = '/var/opt/millegrilles/secrets/pki.filecontroler.key'
 PATH_CORE_CERT = '/var/opt/millegrilles/secrets/pki.core.cert'
-PATH_CORE_CLE = '/var/opt/millegrilles/secrets/pki.core.cle'
+PATH_CORE_CLE = '/var/opt/millegrilles/secrets/pki.core.key'
 PATH_CA_CERT = '/var/opt/millegrilles/configuration/pki.millegrille.cert'
 
 logger = logging.getLogger(__name__)
@@ -54,7 +59,10 @@ async def authenticate_1(formatteur: FormatteurMessageMilleGrilles, ca: Envelopp
     ca_pem = ca.certificat_pem
     signed_message['millegrille'] = ca_pem
 
-    async with aiohttp.ClientSession() as session:
+    ssl_context = _load_ssl_context()
+
+    connector = aiohttp.TCPConnector(ssl=ssl_context, verify_ssl=True)
+    async with aiohttp.ClientSession(connector=connector) as session:
         async with session.post(url_authenticate, json=signed_message) as r:
             r.raise_for_status()
             json_response = await r.json()
@@ -80,6 +88,50 @@ async def authenticate_1(formatteur: FormatteurMessageMilleGrilles, ca: Envelopp
 
     pass
 
+async def authenticate_2_jwt(formatteur: FormatteurMessageMilleGrilles, ca: EnveloppeCertificat):
+    url_authenticate = 'https://thinkcentre1.maple.maceroc.com:3022/filehost/authenticate_jwt'
+    url_get_files = 'https://thinkcentre1.maple.maceroc.com:3022/filehost/files'
+
+    auth_message = dict()
+    signed_message, message_id = formatteur.signer_message(Constantes.KIND_COMMANDE, auth_message, 'filehost', action='authenticate')
+    ca_pem = ca.certificat_pem
+    signed_message['millegrille'] = ca_pem
+
+    ssl_context = _load_ssl_context()
+
+    connector = aiohttp.TCPConnector(ssl=ssl_context, verify_ssl=True)
+    async with aiohttp.ClientSession(connector=connector) as session:
+        async with session.post(url_authenticate, json=signed_message) as r:
+            r.raise_for_status()
+            json_response = await r.json()
+            print("authenticate_2 JSON response: %s\nCookies %s" % (json_response, r.cookies))
+
+        jwt = json_response['jwt']
+
+        headers = {'X-jwt': jwt}
+        async with session.get(url_get_files, headers=headers) as r:
+            r.raise_for_status()
+            print("Headers = %s" % r.headers)
+            print("File list")
+            while True:
+                line = await r.content.readline()
+                if not line:
+                    break
+                line = line.decode('utf-8').strip()
+                print(line)
+
+        async with session.get(f'{url_get_files}?jwt={jwt}', headers=headers) as r:
+            r.raise_for_status()
+            print("Headers = %s" % r.headers)
+            print("File list")
+            while True:
+                line = await r.content.readline()
+                if not line:
+                    break
+                line = line.decode('utf-8').strip()
+                print(line)
+
+    pass
 
 async def put_file_1(formatteur: FormatteurMessageMilleGrilles, ca: EnveloppeCertificat):
     url_authenticate = 'https://thinkcentre1.maple.maceroc.com:3022/filehost/authenticate'
@@ -301,12 +353,21 @@ async def get_backup_tarfile_1(formatteur: FormatteurMessageMilleGrilles, ca: En
                     output.write(chunk)
 
 
+def _load_ssl_context() -> SSLContext:
+    ssl_context = SSLContext(ssl.PROTOCOL_TLS)
+    ssl_context.load_cert_chain(PATH_FICHIERS_CERT, PATH_FICHIERS_CLE)
+    ssl_context.load_verify_locations(cafile=PATH_CA_CERT)
+    ssl_context.verify_mode = VerifyMode.CERT_REQUIRED
+    return ssl_context
+
+
 async def main():
     # Create message signing resource
     signateur, formatteur, ca = load_formatter_fichiers()
 
-    # await authenticate_1(formatteur, ca)
-    await put_file_1(formatteur, ca)
+    await authenticate_1(formatteur, ca)
+    await authenticate_2_jwt(formatteur, ca)
+    # await put_file_1(formatteur, ca)
     # await get_file_1(formatteur, ca)
     # await get_usage(formatteur, ca)
     # await delete_file_1(formatteur, ca)
