@@ -6,7 +6,6 @@ import pathlib
 import math
 
 from io import BufferedReader
-from multiprocessing.managers import Value
 
 from aiohttp import ClientSession
 from ssl import SSLContext
