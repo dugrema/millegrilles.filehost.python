@@ -8,6 +8,7 @@ import math
 from aiohttp import web
 from typing import Union
 
+from millegrilles_filehost.HostingFileHandler import stream_reponse
 from millegrilles_messages.messages import Constantes
 from millegrilles_filehost.BackupV2 import lire_header_archive_backup, get_backup_v2_domaines, extraire_headers
 from millegrilles_filehost.Context import FileHostContext
@@ -307,25 +308,30 @@ class HostingBackupFileHandler:
         filename: str = request.match_info['filename']
         file_path = pathlib.Path(path_idmg, 'backup_v2', domain, version, filename)
 
+        # try:
+        #     stat = file_path.stat()
+        # except FileNotFoundError:
+        #     return web.HTTPNotFound()
+        # size = stat.st_size
+
         try:
-            stat = file_path.stat()
+            return await stream_reponse(request, file_path)
         except FileNotFoundError:
             return web.HTTPNotFound()
-        size = stat.st_size
 
-        with open(file_path, 'rb') as in_file:
-            response = web.StreamResponse(status=200)
-            response.content_length = size
-            response.content_type = 'application/octet-stream'
-            await response.prepare(request)
-            while True:
-                chunk = await asyncio.to_thread(in_file.read, 64*1024)
-                if len(chunk) == 0:
-                    break
-                await response.write(chunk)
-            await response.write_eof()
-
-        return response
+        # with open(file_path, 'rb') as in_file:
+        #     response = web.StreamResponse(status=200)
+        #     response.content_length = size
+        #     response.content_type = 'application/octet-stream'
+        #     await response.prepare(request)
+        #     while True:
+        #         chunk = await asyncio.to_thread(in_file.read, 64*1024)
+        #         if len(chunk) == 0:
+        #             break
+        #         await response.write(chunk)
+        #     await response.write_eof()
+        #
+        # return response
 
     async def get_backup_v2_tar(self, request: web.Request, cookie: Cookie) -> Union[web.Response, web.StreamResponse]:
         # This is a read-write/admin level function. Ensure proper roles/security level

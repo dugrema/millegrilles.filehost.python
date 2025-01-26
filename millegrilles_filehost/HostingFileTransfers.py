@@ -446,18 +446,13 @@ class HostfileFileTransfersBackup(HostfileFileTransfers):
             self.__logger.info("Received GET backup file for %s, file already exists" % file)
             return
 
-        # url_get_file = urljoin(url, f'/filehost/files/{fuuid}')
-        # digester = Hacheur('blake2b-512', 'base58btc')
-
         if path_work.exists():
             # path_work.unlink()  # For now just restart download. Eventually do a resume.
             stat_file = path_work.stat()
             start_position = stat_file.st_size
-            fp = None
             headers = {'Range': 'bytes=%d-' % start_position}
         else:
             start_position = 0
-            fp = None
             headers = None
 
         next_update = datetime.datetime.now()
@@ -465,6 +460,7 @@ class HostfileFileTransfersBackup(HostfileFileTransfers):
         # Ensure work path exists
         path_work.parent.mkdir(parents=True, exist_ok=True)
         digester = None
+        fp = None
 
         try:
             position = 0
