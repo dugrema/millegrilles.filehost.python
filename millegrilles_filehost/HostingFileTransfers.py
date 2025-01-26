@@ -173,6 +173,8 @@ class HostfileFileTransfersFuuids(HostfileFileTransfers):
                 await self.__get_file(session, filehost_id, command_id, url, fuuid, path_idmg)
             elif action == 'putFile':
                 await self.__put_file(session, filehost_id, command_id, url, fuuid, path_idmg)
+            else:
+                raise ValueError('Unsupported action: %s' % action)
 
             self.__logger.debug("GET/PUT complete for file %s to %s" % (fuuid, url))
             await self._emit_transfer_done(idmg, command_id, fuuid)
@@ -280,9 +282,7 @@ class HostfileFileTransfersFuuids(HostfileFileTransfers):
     async def __get_file_resume(self, path_work: pathlib.Path, session: aiohttp.ClientSession, get_status: GetTransferStatus) -> VerificateurHachage:
 
         stat_file = path_work.stat()
-
         start_position = stat_file.st_size
-
         fp = None
         try:
             headers = {'Range': 'bytes=%d-' % start_position}
@@ -424,6 +424,8 @@ class HostfileFileTransfersBackup(HostfileFileTransfers):
                 await self.__get_backup_file(session, filehost_id, command_id, url, domain, version, file, path_idmg)
             elif action == 'putBackupFile':
                 await self.__put_backup_file(session, filehost_id, command_id, url, domain, version, file, path_idmg)
+            else:
+                raise ValueError('Unsupported action type: %s' % action)
 
             self.__logger.debug("GET/PUT complete for file %s to %s" % (file, url))
             await self._emit_transfer_done(idmg, command_id, file)
@@ -445,41 +447,81 @@ class HostfileFileTransfersBackup(HostfileFileTransfers):
             return
 
         # url_get_file = urljoin(url, f'/filehost/files/{fuuid}')
-        digester = Hacheur('blake2b-512', 'base58btc')
+        # digester = Hacheur('blake2b-512', 'base58btc')
 
         if path_work.exists():
-            path_work.unlink()  # For now just restart download. Eventually do a resume.
+            # path_work.unlink()  # For now just restart download. Eventually do a resume.
+            stat_file = path_work.stat()
+            start_position = stat_file.st_size
+            fp = None
+            headers = {'Range': 'bytes=%d-' % start_position}
+        else:
+            start_position = 0
+            fp = None
+            headers = None
 
         next_update = datetime.datetime.now()
 
         # Ensure work path exists
         path_work.parent.mkdir(parents=True, exist_ok=True)
+        digester = None
 
-        with open(path_work, 'wb') as fp:
-            async with session.get(url) as r:
-                r.raise_for_status()
-
-                transferred = 0
-                file_size = r.headers.get('Content-Length')
+        try:
+            position = 0
+            async with session.get(url, headers=headers) as response:
+                response.raise_for_status()
+                file_size = int(response.headers.get('Content-Length'))
+                if response.status == 206:
+                    # Resuming
+                    fp = open(path_work, 'ab')
+                    position = start_position   # Resume at position
+                elif response.status == 200:
+                    # Can't resume, restarting file
+                    self.__logger.warning("Failed to resume backup %s, restarting GET from start" % url)
+                    fp = open(path_work, 'wb')
+                    digester = Hacheur('blake2b-512', 'base58btc')
+                else:
+                    raise Exception('Wrong status code: %d' % response.status)
 
                 await self._idmg_event_callback(
                     idmg, 'transfer_update',
-                    {'file': file, 'transferred': 0, 'file_size': file_size, 'filehost_id': filehost_id}
+                    {'file': file, 'transferred': position, 'file_size': file_size, 'filehost_id': filehost_id}
                 )
 
-                async for chunk in r.content.iter_chunked(CONST_CHUNK_SIZE):
+                async for chunk in response.content.iter_chunked(CONST_CHUNK_SIZE):
                     await asyncio.to_thread(fp.write, chunk)
-                    digester.update(chunk)
-                    transferred += len(chunk)
+                    if digester:
+                        digester.update(chunk)
+                    position += len(chunk)
 
                     if next_update < datetime.datetime.now():
                         await self._idmg_event_callback(
                             idmg, 'transfer_update',
-                            {'file': file, 'transferred': transferred, 'file_size': file_size, 'filehost_id': filehost_id, 'command_id': command_id}
+                            {'file': file, 'transferred': position, 'file_size': file_size, 'filehost_id': filehost_id, 'command_id': command_id}
                         )
                         next_update = datetime.datetime.now() + datetime.timedelta(seconds=5)
 
-        digest_value = digester.finalize()  # Raises exception if invalid
+        finally:
+            if fp:
+                fp.close()
+
+        if digester is None:
+            # File resumed, digest from start
+            digester = Hacheur('blake2b-512', 'base58btc')
+            with open(path_work, 'rb') as fp:
+                with open(path_work, 'rb') as fp:
+                    while True:
+                        chunk = await asyncio.to_thread(fp.read, CONST_CHUNK_SIZE)
+                        if len(chunk) == 0:
+                            break
+                        digester.update(chunk)
+
+        try:
+            digest_value = digester.finalize()  # Raises exception if invalid
+        except Exception as e:
+            path_work.unlink()  # Something is wrong, delete file
+            raise e
+
         # Check that digest matches end of the file
         suffix_digest_file = file.split('.')[0].split('_').pop()
         if digest_value.endswith(suffix_digest_file) is False:
@@ -488,7 +530,7 @@ class HostfileFileTransfersBackup(HostfileFileTransfers):
             await self._idmg_event_callback(
                 idmg, 'transfer_update',
                 {'file': file, 'transferred': 0, 'file_size': file_size, 'filehost_id': filehost_id, 'command_id': command_id,
-                 'done': True, 'err': 'Corrupt file'}
+                 'done': True, 'err': 'Corrupt file - digest mismatch'}
             )
             raise Exception('Downloaded backup file %s is corrupt' % file)
 
