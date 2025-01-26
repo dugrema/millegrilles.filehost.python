@@ -633,6 +633,93 @@ async def stream_reponse(request: web.Request, filepath: pathlib.Path,
     return response
 
 
+async def stream_file_response(request: web.Request, filepath: pathlib.Path, etag: str,
+                               size_limit: Optional[int] = None) -> Union[web.Response, web.StreamResponse]:
+    method = request.method
+    headers = request.headers
+
+    range_bytes = headers.get('Range')
+
+    stat_fichier = filepath.stat()  # Throws FileNotFoundError
+
+    taille_fichier = stat_fichier.st_size
+    if size_limit is not None and taille_fichier > size_limit:
+        LOGGER.error(f"stream_reponse Taille fichier {etag} depasse limite {size_limit}")
+        return web.HTTPExpectationFailed()
+
+    range_str = None
+
+    headers_response = {
+        'Cache-Control': 'public, max-age=604800, immutable',
+        'Accept-Ranges': 'bytes',
+    }
+
+    if range_bytes is not None:
+        # Calculer le content range, taille transfert
+        try:
+            range_parsed = parse_range(range_bytes, taille_fichier)
+        except AttributeError:
+            LOGGER.info("Query with Range that has invalid values")
+            return web.HTTPClientError()
+        start = range_parsed['start']
+        end = range_parsed['end']
+        taille_transfert = str(end - start + 1)
+        range_str = f'bytes {start}-{end}/{taille_fichier}'
+        headers_response['Content-Range'] = range_str
+    else:
+        start = None
+        end = None
+        # Transferer tout le contenu
+        if taille_fichier:
+            taille_transfert = str(taille_fichier)
+        else:
+            taille_transfert = None
+
+    if range_str is not None:
+        status = 206
+    else:
+        status = 200
+
+    # Preparer reponse, headers
+    response = web.StreamResponse(status=status, headers=headers_response)
+    response.content_length = taille_transfert
+    response.content_type = 'application/stream'
+    response.etag = etag
+
+    LOGGER.info("stream_reponse Stream fichier %s : Content-Length : %s, Content-Range: %s" % (etag, taille_transfert, range_str))
+
+    await response.prepare(request)
+    if method == 'HEAD':
+        await response.write_eof()
+        return response
+
+    try:
+        with open(filepath, 'rb') as fp:
+            if start is not None and start > 0:
+                fp.seek(start, 0)
+                position = start
+            else:
+                position = 0
+
+            while True:
+                chunk = fp.read(64*1024)
+                if not chunk:
+                    break
+
+                if end is not None and position + len(chunk) > end:
+                    taille_chunk = end - position + 1
+                    await response.write(chunk[:taille_chunk])
+                    break  # Termine
+                else:
+                    await response.write(chunk)
+
+                position += len(chunk)
+    finally:
+        await response.write_eof()
+
+    return response
+
+
 def parse_range(range, taille_totale):
     # Range: bytes=1234-2000, or bytes=1234-
     re_compiled = re.compile('bytes=([0-9]*)\\-([0-9]*)?')
