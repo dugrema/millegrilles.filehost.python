@@ -204,7 +204,7 @@ class HostfileFileTransfersFuuids(HostfileFileTransfers):
                 else:
                     verifier = await self.__get_file_fromstart(path_work, session, get_status)
                 break  # Transfer successful
-            except asyncio.TimeoutError as e:
+            except* asyncio.TimeoutError as e:
                 timeout_error = e
                 self.__logger.warning("Timeout on file transfer, will retry")
                 await asyncio.sleep(3)  # Waiting 3 seconds before next attempt
