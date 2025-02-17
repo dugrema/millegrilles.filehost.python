@@ -483,7 +483,7 @@ def file_part_reader(path_parts: pathlib.Path):
 async def _manage_staging(files_path: pathlib.Path):
 
     now = datetime.datetime.now()
-    expired = now - datetime.timedelta(hours=2)
+    expired = now - datetime.timedelta(hours=12)
     expired_epoch = expired.timestamp()
 
     for idmg_path in files_path.iterdir():
