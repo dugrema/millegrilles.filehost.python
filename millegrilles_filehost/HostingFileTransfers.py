@@ -132,7 +132,7 @@ class HostfileFileTransfersFuuids(HostfileFileTransfers):
                     self.__logger.exception("Connection error for file %s to %s" % (fuuid, url))
                     await self._emit_transfer_done(idmg, command_id, fuuid, err=str(e))
                 except Exception as e:
-                    self.__logger.exception("Unhandled transfer exception")
+                    self.__logger.exception(f'Unhandled transfer exception on transfer of {fuuid} with {url}')
                     # await self.__idmg_event_callback(
                     #     idmg, 'transfer_done',
                     #     {'idmg': idmg, 'file': fuuid, 'ok': False, 'err': str(e), 'command_id': command_id}
