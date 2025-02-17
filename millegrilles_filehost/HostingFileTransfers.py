@@ -170,7 +170,7 @@ class HostfileFileTransfersFuuids(HostfileFileTransfers):
             pass
 
             if action == 'getFile':
-                await self.__get_file(session, filehost_id, command_id, url, fuuid, path_idmg, transfer)
+                await self.__get_file(session, filehost_id, command_id, url, fuuid, path_idmg)
             elif action == 'putFile':
                 await self.__put_file(session, filehost_id, command_id, url, fuuid, path_idmg)
             else:
@@ -182,7 +182,7 @@ class HostfileFileTransfersFuuids(HostfileFileTransfers):
     async def _emit_transfer_done(self, idmg: str, command_id: str, file: str, err: Optional[str] = None):
         await self._emit_event('transfer_done', idmg, command_id, True, err, file)
 
-    async def __get_file(self, session: aiohttp.ClientSession, filehost_id: str, command_id: str, url: str, fuuid: str, path_idmg: pathlib.Path, transfer: dict):
+    async def __get_file(self, session: aiohttp.ClientSession, filehost_id: str, command_id: str, url: str, fuuid: str, path_idmg: pathlib.Path):
         # Open workfile
         path_work = pathlib.Path(path_idmg, 'staging', fuuid+'.work')
         path_fuuid = pathlib.Path(path_idmg, 'buckets', fuuid[-2:], fuuid)
@@ -208,10 +208,6 @@ class HostfileFileTransfersFuuids(HostfileFileTransfers):
                 timeout_error = e
                 self.__logger.warning(f"Timeout on file transfer attempt {i} for fuuid {fuuid}")
                 await asyncio.sleep(3)  # Waiting 3 seconds before next attempt
-                # Re-authenticate with filehost
-                url_authentication = urljoin(url, '/filehost/authenticate')
-                async with session.post(url_authentication, json=transfer['command']) as r:
-                    r.raise_for_status()
 
         else:
             if timeout_error:

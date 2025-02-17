@@ -35,7 +35,7 @@ class CookieExpired(Exception):
 
 def generate_cookie(secret_cookie_key: bytes, response: web.Response, idmg: str, user_id: Optional[str], roles: Optional[list[str]],
                     exchanges: Optional[list[str]], domaines: Optional[list[str]], delegation_globale: Optional[str]):
-    duration = datetime.timedelta(hours=1)
+    duration = datetime.timedelta(hours=3)
     expiration = datetime.datetime.now() + duration
     expiration_epoch = int(expiration.timestamp())
     max_age = duration.seconds
