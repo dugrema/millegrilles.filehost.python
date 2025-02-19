@@ -8,6 +8,7 @@ from typing import Awaitable, Optional, Callable
 from urllib.parse import urljoin
 
 import aiohttp
+from aiohttp import ClientTimeout
 
 from millegrilles_filehost.BackupV2 import lire_header_archive_backup
 from millegrilles_filehost.Context import FileHostContext
@@ -18,7 +19,7 @@ from millegrilles_messages.utils.FilePartUploader import UploadState, file_uploa
 
 CONST_CHUNK_SIZE = 1024 * 64
 CONST_PART_SIZE = 1024 * 1024 * 250
-
+CONST_GET_FILE_READ_SOCK_TIMEOUT = 20       # Timeout if no data read after 20 seconds
 
 class FileStreamer:
 
@@ -163,7 +164,8 @@ class HostfileFileTransfersFuuids(HostfileFileTransfers):
 
         verify = tls_mode != 'nocheck'
         connector = aiohttp.TCPConnector(verify_ssl=verify)
-        async with aiohttp.ClientSession(connector=connector) as session:
+        client_timeout = ClientTimeout(total=None, sock_connect=30, sock_read=CONST_GET_FILE_READ_SOCK_TIMEOUT)
+        async with aiohttp.ClientSession(connector=connector, timeout=client_timeout) as session:
             url_authentication = urljoin(url, '/filehost/authenticate')
             async with session.post(url_authentication, json=transfer['command']) as r:
                 r.raise_for_status()
