@@ -197,7 +197,10 @@ class HostfileFileTransfersFuuids(HostfileFileTransfers):
         url_get_file = urljoin(url, f'/filehost/files/{fuuid}')
         get_status = GetTransferStatus(filehost_id, command_id, idmg, fuuid, url_get_file)
         timeout_error = None
-        for i in range(0, 4):
+        attempt = 0
+        attempt_reset = datetime.datetime.now()
+        while attempt < 4:
+            attempt += 1
             try:
                 if path_work.exists():
                     verifier = await self.__get_file_resume(path_work, session, get_status)
@@ -206,7 +209,13 @@ class HostfileFileTransfersFuuids(HostfileFileTransfers):
                 break  # Transfer successful
             except* asyncio.TimeoutError as e:
                 timeout_error = e
-                self.__logger.warning(f"Timeout on file transfer attempt {i} for fuuid {fuuid}")
+                if datetime.datetime.now() - datetime.timedelta(minutes=5) > attempt_reset:
+                    # Reset attempts after 5 minutes of initial try
+                    attempt_reset = datetime.datetime.now()
+                    attempt = 0
+                    self.__logger.warning(f"Timeout on file transfer - resetting attempts for fuuid {fuuid}")
+                else:
+                    self.__logger.warning(f"Timeout on file transfer attempt {attempt} for fuuid {fuuid}")
                 await asyncio.sleep(3)  # Waiting 3 seconds before next attempt
 
         else:
