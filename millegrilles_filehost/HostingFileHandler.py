@@ -6,6 +6,7 @@ import math
 import pathlib
 import gzip
 import re
+from json import JSONDecodeError
 
 from aiohttp import web
 from typing import Optional, Union
@@ -40,9 +41,15 @@ class HostingFileHandler:
         self.__context = context
         self.__event_listeners: list[HostingFileEventListener] = list()
         self.__semaphore_usage_update = context.semaphore_usage_update
+        self.__event_start_filecheck = asyncio.Event()
 
     async def run(self):
         await self.maintenance()
+
+    async def __scheduled_triggers_thread(self):
+        while self.__context.stopping is False:
+            self.__event_start_filecheck.set()
+            await self.__context.wait(60)
 
     def add_event_listener(self, listener: HostingFileEventListener):
         self.__event_listeners.append(listener)
@@ -56,6 +63,8 @@ class HostingFileHandler:
         done, pending = await asyncio.wait([
             asyncio.create_task(self.__manage_file_list_thread()),
             asyncio.create_task(self.__manage_staging_thread()),
+            asyncio.create_task(self.__file_checker_thread()),
+            asyncio.create_task(self.__scheduled_triggers_thread()),
             # asyncio.create_task(self.__emit_status_thread()),
         ], return_when=asyncio.FIRST_COMPLETED)
         if self.__context.stopping is False:
@@ -357,6 +366,154 @@ class HostingFileHandler:
     async def update_file_usage(self, path_fuuid: pathlib.Path):
         path_idmg = path_fuuid.parent.parent.parent
         return await update_file_usage(path_idmg, path_fuuid, self.__semaphore_usage_update)
+
+    async def __file_checker_thread(self):
+        """
+        Regularly checks hosted files to detect corruption. Emits a "fileCorrupted" event when detecting issues
+        and removes the offending files.
+        :return:
+        """
+        while self.__context.stopping is False:
+            await self.__event_start_filecheck.wait()
+            if self.__context.stopping:
+                return  # Stopping
+            try:
+                await self.check_files()
+            except asyncio.CancelledError:
+                return  # Stopping
+            except Exception:
+                self.__logger.exception("Error handling file checks")
+
+            self.__event_start_filecheck.clear()  # Wait for next trigger
+
+    async def check_files(self):
+        """
+        Starts checking files. Does a pass with a given soft limit on file count/size for each hosted system.
+        Keeps a "not after" date per system to ensure all files are checked in each pass. Files do not get checked
+        if they have a modified timestamp after the "not after" date or if their modified date is less than 7 days old.
+        :return:
+        """
+        path_hosted_systems = pathlib.Path(self.__context.configuration.dir_files)
+
+        idmg_path: pathlib.Path
+        for idmg_path in path_hosted_systems.iterdir():
+            if idmg_path.is_dir() is False:
+                continue    # Not a hosted system
+
+            filechecks_config_path = pathlib.Path(idmg_path, 'filechecks.json')
+            try:
+                with open(filechecks_config_path, 'rt') as fp:
+                    filechecks_config = json.load(fp)
+            except (FileNotFoundError, JSONDecodeError):
+                filechecks_config = dict()   # New file
+
+            try:
+                not_after_date = datetime.datetime.fromtimestamp(filechecks_config['not_after_date'])
+            except (KeyError, ValueError, TypeError):
+                not_after_date = datetime.datetime.now()
+                # Save new start date for this batch
+                filechecks_config['not_after_date'] = math.floor(not_after_date.timestamp())
+                with open(filechecks_config_path, 'wt') as fp:
+                    json.dump(filechecks_config, fp)
+                self.__logger.info(f"Starting new file check batch for IDMG:{idmg_path.name}")
+
+            complete = await self.check_files_idmg(idmg_path, not_after_date)
+
+            if complete:
+                # Reset not_after_date. A new date will be put in next time.
+                filechecks_config['not_after_date'] = None
+                self.__logger.info(f"File check on IDMG:{idmg_path.name} has completed all files (modified more than 3 days ago), resetting for next check")
+            filechecks_config['last_batch_date'] = math.floor(datetime.datetime.now().timestamp())
+
+            with open(filechecks_config_path, 'wt') as fp:
+                json.dump(filechecks_config, fp)
+
+
+    async def check_files_idmg(self, idmg_path: pathlib.Path, not_after_date: datetime.datetime) -> bool:
+
+        files_checked = 0
+        bytes_checked = 0
+
+        # CONST_FILE_LIMIT = 1000
+        # CONST_BYTES_LIMIT = 1_000_000_000
+        CONST_FILE_LIMIT = 1_000
+        CONST_BYTES_LIMIT = 1_000_000_000
+
+        idmg = idmg_path.name
+        check_start = datetime.datetime.now()
+        not_after_date_ts = not_after_date.timestamp()
+        ts_3days = (check_start - datetime.timedelta(days=3)).timestamp()
+
+        buckets_path = pathlib.Path(idmg_path, 'buckets')
+        if buckets_path.exists() is False:
+            return True  # No files yet
+
+        # Prepare the dumpster in case we find corrupted files
+        dumpster_path = pathlib.Path(idmg_path, 'dumpster')
+        dumpster_path.mkdir(exist_ok=True)
+
+        corrupt_log_path = pathlib.Path(idmg_path, 'corrupt.txt')
+
+        complete: Optional[bool] = None
+
+        for bucket in buckets_path.iterdir():
+            file: pathlib.Path
+            for file in bucket.iterdir():
+                if file.is_file() is False:
+                    continue  # Only checking files
+
+                fuuid = file.name
+
+                stats = file.stat()
+                last_modified = stats.st_mtime
+                if last_modified > not_after_date_ts:
+                    continue  # Skip file, is was modified since the start of this batch
+                elif last_modified > ts_3days:
+                    continue  # The file could be included in this batch but it was modified (checked) < 3 days ago. Skipping.
+
+                file_ok = await verify_hosted_file(self.__context, file)
+                if file_ok is False:
+                    self.__logger.warning(f"File IDMG:{idmg} FUUID:{fuuid} content is corrupt, moving file to dumpster")
+
+                    # Move the corrupt file to the dumpster
+                    path_dumped_file = pathlib.Path(dumpster_path, file.name)
+                    file.rename(path_dumped_file)
+
+                    # Add an entry to corrupt.txt
+                    with open(corrupt_log_path, 'at') as fp:
+                        fp.write(file.name)
+                        fp.write('\n')
+
+                else:
+                    self.__logger.debug(f"File IDMG:{idmg} FUUID:{fuuid} is OK")
+
+                files_checked += 1
+                bytes_checked += stats.st_size
+
+                if files_checked >= CONST_FILE_LIMIT:
+                    complete = False
+                    break  # Batch limit reached
+                elif bytes_checked >= CONST_BYTES_LIMIT:
+                    complete = False
+
+                # Inner loop
+                if complete is not None:
+                    break  # Batch limit reached
+
+            # Outer loop
+            if complete is not None:
+                break  # Batch limit reached
+        else:
+            complete = True
+
+        check_end = datetime.datetime.now()
+        check_duration = check_end - check_start
+        self.__logger.info(f"File checking on IDMG:%s has completed a batch in %s on %s files (%s bytes)",
+                           idmg, check_duration, files_checked, bytes_checked)
+
+        if complete is None:
+            return False
+        return complete
 
 
 async def receive_fuuid(request: web.Request, workfile_path: pathlib.Path, fuuid: Optional[str] = None):
@@ -748,3 +905,27 @@ def parse_range(range, taille_totale):
     }
 
     return result
+
+
+async def verify_hosted_file(context: FileHostContext, file_path: pathlib.Path) -> bool:
+    fuuid = file_path.name
+    verifier = VerificateurHachage(fuuid)
+
+    with open(file_path, 'rb') as fp:
+        while True:
+            chunk = await asyncio.to_thread(fp.read, CONST_CHUNK_SIZE)
+            if not chunk:
+                break
+
+            verifier.update(chunk)
+            # Throttle
+            await context.wait(0.01)
+            if context.stopping:
+                raise Exception('stopping')
+
+    try:
+        verifier.verify()
+        await asyncio.to_thread(file_path.touch)  # Modify file time, avoids re-checking in same batch
+        return True
+    except ErreurHachage:
+        return False
