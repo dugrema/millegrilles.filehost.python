@@ -315,7 +315,10 @@ class HostfileFileTransfersFuuids(HostfileFileTransfers):
                 response.raise_for_status()
                 file_size = int(response.headers.get('Content-Length'))
                 get_status.file_size = file_size
-                if response.status == 206:
+                if file_size == start_position:
+                    # File already done
+                    verifier = None
+                elif response.status == 206:
                     # Resuming
                     fp = open(path_work, 'ab')
                     verifier = None
