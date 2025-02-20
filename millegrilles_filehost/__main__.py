@@ -53,7 +53,7 @@ def wiring(context: FileHostContext):
     backup_file_handler = HostingBackupFileHandler(context)
     hosting_file_transfers = HostfileFileTransfersFuuids(context, hosting_file_handler)
     hosting_backup_file_transfers = HostfileFileTransfersBackup(context, backup_file_handler)
-    socketio_handler = SocketioHandler(context, authentication_handler, hosting_file_transfers, hosting_backup_file_transfers)
+    socketio_handler = SocketioHandler(context, authentication_handler, hosting_file_transfers, hosting_backup_file_transfers, hosting_file_handler)
 
     handlers = Handlers(authentication_handler, hosting_file_handler, backup_file_handler, socketio_handler)
     web_server = WebServer(context, handlers)

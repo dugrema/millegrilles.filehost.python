@@ -9,7 +9,8 @@ import json
 from typing import Optional
 from socketio.exceptions import ConnectionRefusedError
 
-from millegrilles_filehost.HostingFileHandler import HostingFileEventListener, get_file_usage, get_fuuid_dir
+from millegrilles_filehost.HostingFileHandler import HostingFileEventListener, get_file_usage, get_fuuid_dir, \
+    HostingFileHandler
 from millegrilles_filehost.HostingFileTransfers import HostfileFileTransfers, HostfileFileTransfersBackup
 from millegrilles_messages.messages import Constantes
 from millegrilles_filehost.AuthenticationHandler import AuthenticationHandler
@@ -32,13 +33,15 @@ class SioListeners(HostingFileEventListener):
 class SocketioHandler(StopListener):
 
     def __init__(self, context: FileHostContext, authentication_handler: AuthenticationHandler,
-                 hosting_filetransfers: HostfileFileTransfers, hosting_backup_filetransfers: HostfileFileTransfersBackup):
+                 hosting_filetransfers: HostfileFileTransfers, hosting_backup_filetransfers: HostfileFileTransfersBackup,
+                 hosting_file_handler: HostingFileHandler):
         super().__init__()
         self.__logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
         self.__context = context
         self.__authentication_handler = authentication_handler
         self.__hosting_filetransfers = hosting_filetransfers
         self.__hosting_backup_filetransfers = hosting_backup_filetransfers
+        self.__hosting_file_handler = hosting_file_handler
         self.__sio = socketio.AsyncServer(async_mode='aiohttp', cors_allowed_origins='*')
         self.__app: Optional[aiohttp.web_app.Application] = None
         self.__idmg_event_listener = SioListeners(self.__sio)
@@ -234,6 +237,8 @@ class SocketioHandler(StopListener):
 
         try:
             path_fuuid.unlink()
+            # File system changed, rebuild the file lists
+            self.__hosting_file_handler.trigger_event_manage_file_lists()
         except FileNotFoundError:
             return {'ok': True, 'code': 404}
 

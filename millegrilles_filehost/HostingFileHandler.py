@@ -42,14 +42,21 @@ class HostingFileHandler:
         self.__event_listeners: list[HostingFileEventListener] = list()
         self.__semaphore_usage_update = context.semaphore_usage_update
         self.__event_start_filecheck = asyncio.Event()
+        self.__event_manage_file_lists = asyncio.Event()
 
     async def run(self):
         await self.maintenance()
 
+    async def stop_thread(self):
+        await self.__context.wait()  # Await stop signal
+        # Trigger all events to get the threads stopped
+        self.__event_start_filecheck.set()
+        self.__event_manage_file_lists.set()
+
     async def __scheduled_triggers_thread(self):
         while self.__context.stopping is False:
             self.__event_start_filecheck.set()
-            await self.__context.wait(60)
+            await self.__context.wait(120)
 
     def add_event_listener(self, listener: HostingFileEventListener):
         self.__event_listeners.append(listener)
@@ -227,9 +234,14 @@ class HostingFileHandler:
 
     async def __manage_file_list_thread(self):
         while self.__context.stopping is False:
+            self.__event_manage_file_lists.clear()  # Reset flag for next run
             files_path = pathlib.Path(self.__context.configuration.dir_files)
             await _manage_file_list(files_path, self.__semaphore_usage_update, self.emit_event)
-            await self.__context.wait(CONST_REFRESH_LISTS_INTERVAl)
+            try:
+                await asyncio.wait_for(self.__event_manage_file_lists.wait(), CONST_REFRESH_LISTS_INTERVAl)
+                await self.__context.wait(30)  # wait 30 seconds to start to let the file system changes settle
+            except asyncio.TimeoutError:
+                pass
 
     async def __manage_staging_thread(self):
         while self.__context.stopping is False:
@@ -514,6 +526,9 @@ class HostingFileHandler:
         if complete is None:
             return False
         return complete
+
+    def trigger_event_manage_file_lists(self):
+        self.__event_manage_file_lists.set()
 
 
 async def receive_fuuid(request: web.Request, workfile_path: pathlib.Path, fuuid: Optional[str] = None):
