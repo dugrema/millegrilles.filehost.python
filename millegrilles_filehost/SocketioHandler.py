@@ -9,7 +9,7 @@ import json
 from typing import Optional
 from socketio.exceptions import ConnectionRefusedError
 
-from millegrilles_filehost.HostingFileHandler import HostingFileEventListener, get_file_usage
+from millegrilles_filehost.HostingFileHandler import HostingFileEventListener, get_file_usage, get_fuuid_dir
 from millegrilles_filehost.HostingFileTransfers import HostfileFileTransfers, HostfileFileTransfersBackup
 from millegrilles_messages.messages import Constantes
 from millegrilles_filehost.AuthenticationHandler import AuthenticationHandler
@@ -75,6 +75,7 @@ class SocketioHandler(StopListener):
         self.__sio.on('transfer_get', handler=self.__on_add_file_transfer)
         self.__sio.on('backup_put', handler=self.__on_backup_transfer)
         self.__sio.on('backup_get', handler=self.__on_backup_transfer)
+        self.__sio.on('delete_file', handler=self.__on_delete_file)
 
     async def on_connect(self, sid: str, environ: dict, auth: Optional[dict] = None):
         if auth is None:
@@ -211,3 +212,29 @@ class SocketioHandler(StopListener):
         except Exception as e:
             self.__logger.exception("Unhandled exception")
             return {'ok': False, 'err': str(e)}
+
+    async def __on_delete_file(self, sid: str, command: dict):
+        try:
+            fuuid: str = command['fuuid']
+        except KeyError:
+            return {'ok': False, 'code': 400}
+
+        try:
+            idmg = self.__sids_idmg[sid]
+        except KeyError:
+            return {'ok': False, 'code': 401}  # Access denied
+
+        # Ensure idmg is already present (authorization should be rejected otherwise)
+        path_idmg = pathlib.Path(self.__context.configuration.dir_files, idmg)
+        if path_idmg.exists() is False:
+            self.__logger.error("Authorized access to non-existant IDMG %s, FAIL" % idmg)
+            return {'ok': False, 'code': 401}  # Access denied
+
+        path_fuuid = get_fuuid_dir(path_idmg, fuuid)
+
+        try:
+            path_fuuid.unlink()
+        except FileNotFoundError:
+            return {'ok': True, 'code': 404}
+
+        return {'ok': True, 'code': 200}
