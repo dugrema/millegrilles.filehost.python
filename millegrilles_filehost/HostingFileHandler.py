@@ -434,7 +434,7 @@ class HostingFileHandler:
             if complete:
                 # Reset not_after_date. A new date will be put in next time.
                 filechecks_config['not_after_date'] = None
-                self.__logger.info(f"File check on IDMG:{idmg_path.name} has completed all files (modified more than 3 days ago), resetting for next check")
+                self.__logger.debug(f"File check on IDMG:{idmg_path.name} has completed all files (modified more than 3 days ago), resetting for next check")
             filechecks_config['last_batch_date'] = math.floor(datetime.datetime.now().timestamp())
 
             with open(filechecks_config_path, 'wt') as fp:
@@ -520,8 +520,9 @@ class HostingFileHandler:
 
         check_end = datetime.datetime.now()
         check_duration = check_end - check_start
-        self.__logger.info(f"File checking on IDMG:%s has completed a batch in %s on %s files (%s bytes)",
-                           idmg, check_duration, files_checked, bytes_checked)
+        if files_checked > 0:
+            self.__logger.info(f"File checking on IDMG:%s has completed a batch in %s on %s files (%s bytes)",
+                               idmg, check_duration, files_checked, bytes_checked)
 
         if complete is None:
             return False
