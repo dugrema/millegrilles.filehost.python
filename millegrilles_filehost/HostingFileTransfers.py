@@ -195,6 +195,7 @@ class HostfileFileTransfersFuuids(HostfileFileTransfers):
             # File already transferred. Report as done.
             usage = await self.__hosting_file_handler.get_file_usage(path_idmg)
             await self._idmg_event_callback(idmg, 'newFuuid', {'file': fuuid, 'usage': usage})
+            return  # All done
 
         url_get_file = urljoin(url, f'/filehost/files/{fuuid}')
         get_status = GetTransferStatus(filehost_id, command_id, idmg, fuuid, url_get_file)
