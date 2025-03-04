@@ -1,6 +1,6 @@
-FROM docker.maple.maceroc.com:5000/millegrilles_messages_python:2024.9.91
+FROM docker.maple.maceroc.com:5000/millegrilles_messages_python:2025.2.99
 
-ARG VBUILD=2024.9.0
+ARG VBUILD=2025.2.0
 
 ENV WEB_CERT=/run/secrets/web.cert \
     WEB_KEY=/run/secrets/web.key \
