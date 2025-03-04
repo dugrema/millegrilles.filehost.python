@@ -145,6 +145,8 @@ class HostingFileHandler:
             pass
         elif roles and exchanges and 'media' in roles and Constantes.SECURITE_PROTEGE in exchanges:
             pass  # Media transcoder
+        elif roles and exchanges and 'web_scraper' in roles and Constantes.SECURITE_PUBLIC in exchanges:
+            pass  # Data Collector's web scraper
         elif roles and 'usager' in roles and user_id is not None:
             pass
         else:
