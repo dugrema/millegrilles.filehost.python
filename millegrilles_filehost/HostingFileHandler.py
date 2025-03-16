@@ -6,6 +6,7 @@ import math
 import pathlib
 import gzip
 import re
+from asyncio import TaskGroup
 from json import JSONDecodeError
 
 from aiohttp import web
@@ -14,7 +15,7 @@ from typing import Optional, Union
 from shutil import rmtree
 
 from millegrilles_messages.messages import Constantes
-from millegrilles_filehost.Context import FileHostContext
+from millegrilles_filehost.Context import FileHostContext, StoppingException
 from millegrilles_filehost.CookieUtilities import Cookie
 from millegrilles_messages.messages.Hachage import VerificateurHachage, ErreurHachage
 from millegrilles_messages.utils.FilePartUploader import CHUNK_SIZE
@@ -65,20 +66,42 @@ class HostingFileHandler:
         for l in self.__event_listeners:
             await l.on_event(idmg, name, value)
 
+    async def __stop_thread(self):
+        await self.__context.wait()
+        # Trigger all threads
+        self.__event_start_filecheck.set()
+        self.__event_manage_file_lists.set()
+        raise StoppingException()
+
     async def maintenance(self):
-        self.__logger.debug("Starting maintenance")
-        done, pending = await asyncio.wait([
-            asyncio.create_task(self.__manage_file_list_thread()),
-            asyncio.create_task(self.__manage_staging_thread()),
-            asyncio.create_task(self.__file_checker_thread()),
-            asyncio.create_task(self.__scheduled_triggers_thread()),
-            # asyncio.create_task(self.__emit_status_thread()),
-        ], return_when=asyncio.FIRST_COMPLETED)
+        self.__logger.info("Starting maintenance")
+        try:
+            async with TaskGroup() as group:
+                group.create_task(self.__manage_file_list_thread())
+                group.create_task(self.__manage_staging_thread())
+                group.create_task(self.__file_checker_thread())
+                group.create_task(self.__scheduled_triggers_thread())
+                group.create_task(self.__stop_thread())
+                # group.create_task(self.__emit_status_thread()),
+        except* StoppingException:
+            pass
+
         if self.__context.stopping is False:
             self.__logger.error("Maintenant thread stopped out of turn")
             self.__context.stop()
-        await asyncio.gather(*pending, return_exceptions=True)
-        self.__logger.debug("Maintenance stopped")
+
+        # done, pending = await asyncio.wait([
+        #     asyncio.create_task(self.__manage_file_list_thread()),
+        #     asyncio.create_task(self.__manage_staging_thread()),
+        #     asyncio.create_task(self.__file_checker_thread()),
+        #     asyncio.create_task(self.__scheduled_triggers_thread()),
+        #     # asyncio.create_task(self.__emit_status_thread()),
+        # ], return_when=asyncio.FIRST_COMPLETED)
+        # await asyncio.gather(*pending, return_exceptions=True)
+        # if self.__context.stopping is False:
+        #     self.__logger.error("Maintenant thread stopped out of turn")
+        #     self.__context.stop()
+        self.__logger.info("Maintenance stopped")
 
     async def file_list(self, request: web.Request, cookie: Cookie) -> Union[web.Response, web.StreamResponse]:
         # This is a read-write/admin level function. Ensure proper roles/security level

@@ -15,6 +15,9 @@ from millegrilles_filehost.Configuration import FileHostConfiguration
 
 LOGGER = logging.getLogger(__name__)
 
+class StoppingException(Exception):
+    pass
+
 
 class StopListener:
     """
