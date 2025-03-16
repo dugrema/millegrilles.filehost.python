@@ -15,6 +15,9 @@ ENV_WEB_CERT = 'WEB_CERT'
 ENV_WEB_KEY = 'WEB_KEY'
 ENV_WEB_CA = 'WEB_CA'
 ENV_WEB_PORT = 'WEB_PORT'
+ENV_CHECK_THROTTLE_MS = 'CHECK_THROTTLE_MS'
+ENV_CHECK_BATCH_LEN = 'CHECK_BATCH_LEN'
+ENV_CHECK_BATCH_SIZE = 'CHECK_BATCH_SIZE'
 
 # Default values
 DEFAULT_DIR_CONFIGURATION="/var/opt/millegrilles/filehost/configuration"
@@ -23,6 +26,9 @@ DEFAULT_DIR_DATA="/var/opt/millegrilles/filehost/data"
 DEFAULT_WEB_CERT="/run/secrets/web.cert"
 DEFAULT_WEB_KEY="/run/secrets/web.key"
 DEFAULT_WEB_PORT=443
+DEFAULT_CHECK_THROTTLE_MS=10
+DEFAULT_CHECK_BATCH_LEN=1000
+DEFAULT_CHECK_BATCH_SIZE=1_000_000_000
 
 
 def _parse_command_line():
@@ -61,6 +67,9 @@ class FileHostConfiguration:
         self.web_key_path = DEFAULT_WEB_KEY
         self.web_ca_path: Optional[str] = None
         self.web_port = DEFAULT_WEB_PORT
+        self.check_throttle_ms = DEFAULT_CHECK_THROTTLE_MS  # Default throttle on file check - 0 disables throttle
+        self.check_batch_len = DEFAULT_CHECK_BATCH_LEN
+        self.check_batch_size = DEFAULT_CHECK_BATCH_SIZE
 
     def parse_config(self, _args: argparse.Namespace):
         self.dir_configuration = os.environ.get(ENV_DIR_CONFIGURATION) or self.dir_configuration
@@ -71,10 +80,23 @@ class FileHostConfiguration:
         self.web_key_path = os.environ.get(ENV_WEB_KEY) or self.web_key_path
         self.web_ca_path = os.environ.get(ENV_WEB_CA)
 
-        # Load web_port param as int
+        # Load int params
+
         web_port = os.environ.get(ENV_WEB_PORT)
         if web_port:
             self.web_port = int(web_port)
+
+        check_throttle_ms = os.environ.get(ENV_CHECK_THROTTLE_MS)
+        if check_throttle_ms:
+            self.check_throttle_ms = int(check_throttle_ms)
+
+        check_batch_len = os.environ.get(ENV_CHECK_BATCH_LEN)
+        if check_batch_len:
+            self.check_batch_len = int(check_batch_len)
+
+        check_batch_size = os.environ.get(ENV_CHECK_BATCH_SIZE)
+        if check_batch_size:
+            self.check_batch_size = int(check_batch_size)
 
     @staticmethod
     def load():

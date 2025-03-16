@@ -473,8 +473,8 @@ class HostingFileHandler:
 
         # CONST_FILE_LIMIT = 1000
         # CONST_BYTES_LIMIT = 1_000_000_000
-        CONST_FILE_LIMIT = 1_000
-        CONST_BYTES_LIMIT = 1_000_000_000
+        file_count_limit = self.__context.configuration.check_batch_len
+        file_bytes_limit = self.__context.configuration.check_batch_size
 
         idmg = idmg_path.name
         check_start = datetime.datetime.now()
@@ -527,10 +527,10 @@ class HostingFileHandler:
                 files_checked += 1
                 bytes_checked += stats.st_size
 
-                if files_checked >= CONST_FILE_LIMIT:
+                if files_checked >= file_count_limit:
                     complete = False
                     break  # Batch limit reached
-                elif bytes_checked >= CONST_BYTES_LIMIT:
+                elif bytes_checked >= file_bytes_limit:
                     complete = False
 
                 # Inner loop
@@ -952,6 +952,12 @@ async def verify_hosted_file(context: FileHostContext, file_path: pathlib.Path) 
     fuuid = file_path.name
     verifier = VerificateurHachage(fuuid)
 
+    throttle = context.configuration.check_throttle_ms
+    if throttle == 0:
+        throttle = None
+    else:
+       throttle = float(throttle) / 1000
+
     with open(file_path, 'rb') as fp:
         while True:
             chunk = await asyncio.to_thread(fp.read, CONST_CHUNK_SIZE)
@@ -959,8 +965,9 @@ async def verify_hosted_file(context: FileHostContext, file_path: pathlib.Path) 
                 break
 
             verifier.update(chunk)
-            # Throttle
-            await context.wait(0.01)
+            if throttle:  # Throttle file check
+                await context.wait(throttle)
+
             if context.stopping:
                 raise Exception('stopping')
 
