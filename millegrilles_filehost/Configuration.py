@@ -18,6 +18,7 @@ ENV_WEB_PORT = 'WEB_PORT'
 ENV_CHECK_THROTTLE_MS = 'CHECK_THROTTLE_MS'
 ENV_CHECK_BATCH_LEN = 'CHECK_BATCH_LEN'
 ENV_CHECK_BATCH_SIZE = 'CHECK_BATCH_SIZE'
+ENV_CHECK_INTERVAL_SECS = 'CHECK_INTERVAL_SECS'
 
 # Default values
 DEFAULT_DIR_CONFIGURATION="/var/opt/millegrilles/filehost/configuration"
@@ -29,6 +30,7 @@ DEFAULT_WEB_PORT=443
 DEFAULT_CHECK_THROTTLE_MS=10
 DEFAULT_CHECK_BATCH_LEN=1000
 DEFAULT_CHECK_BATCH_SIZE=1_000_000_000
+DEFAULT_CHECK_INTERVAL_SECS=120
 
 
 def _parse_command_line():
@@ -59,17 +61,18 @@ def __adjust_logging(args: argparse.Namespace):
 class FileHostConfiguration:
 
     def __init__(self):
-        self.dir_configuration = DEFAULT_DIR_CONFIGURATION
-        self.dir_files = DEFAULT_DIR_FILES
-        self.dir_data = DEFAULT_DIR_DATA
+        self.dir_configuration: str = DEFAULT_DIR_CONFIGURATION
+        self.dir_files: str = DEFAULT_DIR_FILES
+        self.dir_data: str = DEFAULT_DIR_DATA
 
-        self.web_cert_path = DEFAULT_WEB_CERT
-        self.web_key_path = DEFAULT_WEB_KEY
+        self.web_cert_path: str = DEFAULT_WEB_CERT
+        self.web_key_path: str = DEFAULT_WEB_KEY
         self.web_ca_path: Optional[str] = None
-        self.web_port = DEFAULT_WEB_PORT
-        self.check_throttle_ms = DEFAULT_CHECK_THROTTLE_MS  # Default throttle on file check - 0 disables throttle
-        self.check_batch_len = DEFAULT_CHECK_BATCH_LEN
-        self.check_batch_size = DEFAULT_CHECK_BATCH_SIZE
+        self.web_port: int = DEFAULT_WEB_PORT
+        self.check_throttle_ms: int = DEFAULT_CHECK_THROTTLE_MS  # Default throttle on file check - 0 disables throttle
+        self.check_batch_len: int = DEFAULT_CHECK_BATCH_LEN
+        self.check_batch_size: int = DEFAULT_CHECK_BATCH_SIZE
+        self.check_interval_secs: int = DEFAULT_CHECK_INTERVAL_SECS
 
     def parse_config(self, _args: argparse.Namespace):
         self.dir_configuration = os.environ.get(ENV_DIR_CONFIGURATION) or self.dir_configuration
@@ -97,6 +100,10 @@ class FileHostConfiguration:
         check_batch_size = os.environ.get(ENV_CHECK_BATCH_SIZE)
         if check_batch_size:
             self.check_batch_size = int(check_batch_size)
+
+        check_interval_secs = os.environ.get(ENV_CHECK_INTERVAL_SECS)
+        if check_interval_secs:
+            self.check_interval_secs = int(check_interval_secs)
 
     @staticmethod
     def load():

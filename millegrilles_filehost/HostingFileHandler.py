@@ -55,9 +55,12 @@ class HostingFileHandler:
         self.__event_manage_file_lists.set()
 
     async def __scheduled_triggers_thread(self):
+        interval_check = self.__context.configuration.check_interval_secs
+        if interval_check < 15:
+            interval_check = 15
         while self.__context.stopping is False:
             self.__event_start_filecheck.set()
-            await self.__context.wait(120)
+            await self.__context.wait(interval_check)
 
     def add_event_listener(self, listener: HostingFileEventListener):
         self.__event_listeners.append(listener)
