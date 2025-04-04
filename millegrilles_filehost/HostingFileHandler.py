@@ -329,9 +329,9 @@ class HostingFileHandler:
             with open(path_part_work, 'wb') as output:
                 async for chunk in request.content.iter_chunked(CONST_CHUNK_SIZE):
                     await asyncio.to_thread(output.write, chunk)
-                path_part_work.rename(path_part)
+                await asyncio.to_thread(path_part_work.rename, path_part)
         finally:
-            path_part_work.unlink(missing_ok=True)  # Ensure cleanup
+            await asyncio.to_thread(path_part_work.unlink, missing_ok=True)  # Ensure cleanup
 
         return web.HTTPOk()
 
@@ -466,7 +466,7 @@ class HostingFileHandler:
             filechecks_config['last_batch_date'] = math.floor(datetime.datetime.now().timestamp())
 
             with open(filechecks_config_path, 'wt') as fp:
-                json.dump(filechecks_config, fp)
+                await asyncio.to_thread(json.dump, filechecks_config, fp)
 
 
     async def check_files_idmg(self, idmg_path: pathlib.Path, not_after_date: datetime.datetime) -> bool:
@@ -490,7 +490,7 @@ class HostingFileHandler:
 
         # Prepare the dumpster in case we find corrupted files
         dumpster_path = pathlib.Path(idmg_path, 'dumpster')
-        dumpster_path.mkdir(exist_ok=True)
+        await asyncio.to_thread(dumpster_path.mkdir, exist_ok=True)
 
         corrupt_log_path = pathlib.Path(idmg_path, 'corrupt.txt')
 
@@ -658,13 +658,13 @@ async def _manage_file_list(files_path: pathlib.Path, semaphore: asyncio.Semapho
                                 LOGGER.warning("Error emitting usage event: %s" % e)
 
         # Delete old file
-        path_filelist.unlink(missing_ok=True)
+        await asyncio.to_thread(path_filelist.unlink, missing_ok=True)
         # Replace by new file
-        path_filelist_work.rename(path_filelist)
+        await asyncio.to_thread(path_filelist_work.rename, path_filelist)
 
         # Remove incremental list
         path_filelist_incremental = pathlib.Path(idmg_path, 'list_incremental.txt')
-        path_filelist_incremental.unlink(missing_ok=True)
+        await asyncio.to_thread(path_filelist_incremental.unlink, missing_ok=True)
 
 
 def file_part_reader(path_parts: pathlib.Path):
@@ -714,7 +714,7 @@ async def get_file_usage(path_idmg: pathlib.Path, semaphore: asyncio.Semaphore):
     path_usage_file = pathlib.Path(path_idmg, 'usage.json')
     async with semaphore:
         with open(path_usage_file, 'rt') as fp:
-            usage = json.load(fp)
+            usage = await asyncio.to_thread(json.load, fp)
 
     return usage
 

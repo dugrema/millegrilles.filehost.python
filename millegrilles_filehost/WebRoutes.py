@@ -53,6 +53,7 @@ class Handlers:
 class WebRouteHandler:
 
     def __init__(self, context: FileHostContext, handlers: Handlers):
+        self.__logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
         self.__context = context
         self.__handlers = handlers
 
@@ -92,14 +93,20 @@ class WebRouteHandler:
             return web.json_response({"ok": True})
 
     async def authenticate(self, request: web.Request) -> web.Response:
+        if self.__handlers.semaphore_auth.locked():
+            self.__logger.info("authenticate Semaphore locked for request %s" % request.url)
         async with self.__handlers.semaphore_auth:
             return await self.__handlers.authentication_handlers.authenticate(request)
 
     async def authenticate_jwt(self, request: web.Request) -> web.Response:
+        if self.__handlers.semaphore_auth.locked():
+            self.__logger.info("authenticate_jwt Semaphore locked for request %s" % request.url)
         async with self.__handlers.semaphore_auth:
             return await self.__handlers.authentication_handlers.authenticate_jwt(request)
 
     async def logout(self, request: web.Request) -> web.Response :
+        if self.__handlers.semaphore_auth.locked():
+            self.__logger.info("logout Semaphore locked for request %s" % request.url)
         async with self.__handlers.semaphore_auth:
             return await self.__handlers.authentication_handlers.logout(request)
 
@@ -108,6 +115,8 @@ class WebRouteHandler:
             cookie = await self.extract_authentication(request)
         except (ValueError, CookieExpired, CryptoError):
             return web.HTTPUnauthorized()
+        if self.__handlers.semaphore_web.locked():
+            self.__logger.info("get_file_list Semaphore locked for request %s" % request.url)
         async with self.__handlers.semaphore_web:
             return await self.__handlers.hosting_file_handler.file_list(request, cookie)
 
@@ -116,6 +125,8 @@ class WebRouteHandler:
             cookie = await self.extract_authentication(request)
         except (ValueError, CookieExpired, CryptoError):
             return web.HTTPUnauthorized()
+        if self.__handlers.semaphore_file_get.locked():
+            self.__logger.info("get_file Semaphore locked for request %s" % request.url)
         async with self.__handlers.semaphore_file_get:
             return await self.__handlers.hosting_file_handler.get_file(request, cookie)
 
@@ -124,6 +135,8 @@ class WebRouteHandler:
             cookie = await self.extract_authentication(request)
         except (ValueError, CookieExpired, CryptoError):
             return web.HTTPUnauthorized()
+        if self.__handlers.semaphore_file_put.locked():
+            self.__logger.info("put_file Semaphore locked for request %s" % request.url)
         async with self.__handlers.semaphore_file_put:
             return await self.__handlers.hosting_file_handler.put_file(request, cookie)
 
@@ -132,6 +145,8 @@ class WebRouteHandler:
             cookie = await self.extract_authentication(request)
         except (ValueError, CookieExpired, CryptoError):
             return web.HTTPUnauthorized()
+        if self.__handlers.semaphore_web.locked():
+            self.__logger.info("delete_file Semaphore locked for request %s" % request.url)
         async with self.__handlers.semaphore_web:
             return await self.__handlers.hosting_file_handler.delete_file(request, cookie)
 
@@ -140,6 +155,8 @@ class WebRouteHandler:
             cookie = await self.extract_authentication(request)
         except (ValueError, CookieExpired, CryptoError):
             return web.HTTPUnauthorized()
+        if self.__handlers.semaphore_web.locked():
+            self.__logger.info("get_usage Semaphore locked for request %s" % request.url)
         async with self.__handlers.semaphore_web:
             return await self.__handlers.hosting_file_handler.get_usage(request, cookie)
 
@@ -148,6 +165,8 @@ class WebRouteHandler:
             cookie = await self.extract_authentication(request)
         except (ValueError, CookieExpired, CryptoError):
             return web.HTTPUnauthorized()
+        if self.__handlers.semaphore_file_put.locked():
+            self.__logger.info("put_file_part Semaphore locked for request %s" % request.url)
         async with self.__handlers.semaphore_file_put:
             return await self.__handlers.hosting_file_handler.put_file_part(request, cookie)
 
@@ -156,6 +175,8 @@ class WebRouteHandler:
             cookie = await self.extract_authentication(request)
         except (ValueError, CookieExpired, CryptoError):
             return web.HTTPUnauthorized()
+        if self.__handlers.semaphore_file_put.locked():
+            self.__logger.info("finish_file Semaphore locked for request %s" % request.url)
         async with self.__handlers.semaphore_file_put:
             return await self.__handlers.hosting_file_handler.finish_file(request, cookie)
 
@@ -178,6 +199,8 @@ class WebRouteHandler:
             cookie = await self.extract_authentication(request)
         except (ValueError, CookieExpired, CryptoError):
             return web.HTTPUnauthorized()
+        if self.__handlers.semaphore_backup.locked():
+            self.__logger.info("put_backup_v2 Semaphore locked for request %s" % request.url)
         async with self.__handlers.semaphore_backup:
             return await self.__handlers.hosting_backup_file_handler.put_backup_v2(request, cookie)
 
@@ -186,6 +209,8 @@ class WebRouteHandler:
             cookie = await self.extract_authentication(request)
         except (ValueError, CookieExpired, CryptoError):
             return web.HTTPUnauthorized()
+        if self.__handlers.semaphore_backup.locked():
+            self.__logger.info("get_backup_v2_domain_list Semaphore locked for request %s" % request.url)
         async with self.__handlers.semaphore_backup:
             return await self.__handlers.hosting_backup_file_handler.get_backup_v2_domain_list(request, cookie)
 
@@ -194,6 +219,8 @@ class WebRouteHandler:
             cookie = await self.extract_authentication(request)
         except (ValueError, CookieExpired, CryptoError):
             return web.HTTPUnauthorized()
+        if self.__handlers.semaphore_backup.locked():
+            self.__logger.info("get_backup_v2_versions_list Semaphore locked for request %s" % request.url)
         async with self.__handlers.semaphore_backup:
             return await self.__handlers.hosting_backup_file_handler.get_backup_v2_versions_list(request, cookie)
 
@@ -202,6 +229,8 @@ class WebRouteHandler:
             cookie = await self.extract_authentication(request)
         except (ValueError, CookieExpired, CryptoError):
             return web.HTTPUnauthorized()
+        if self.__handlers.semaphore_backup.locked():
+            self.__logger.info("get_backup_v2_archives_list Semaphore locked for request %s" % request.url)
         async with self.__handlers.semaphore_backup:
             return await self.__handlers.hosting_backup_file_handler.get_backup_v2_archives_list(request, cookie)
 
@@ -210,6 +239,8 @@ class WebRouteHandler:
             cookie = await self.extract_authentication(request)
         except (ValueError, CookieExpired, CryptoError):
             return web.HTTPUnauthorized()
+        if self.__handlers.semaphore_backup.locked():
+            self.__logger.info("get_backup_v2 Semaphore locked for request %s" % request.url)
         async with self.__handlers.semaphore_backup:
             return await self.__handlers.hosting_backup_file_handler.get_backup_v2(request, cookie)
 
@@ -218,5 +249,7 @@ class WebRouteHandler:
             cookie = await self.extract_authentication(request)
         except (ValueError, CookieExpired, CryptoError):
             return web.HTTPUnauthorized()
+        if self.__handlers.semaphore_backup.locked():
+            self.__logger.info("get_backup_v2_tar Semaphore locked for request %s" % request.url)
         async with self.__handlers.semaphore_backup:
             return await self.__handlers.hosting_backup_file_handler.get_backup_v2_tar(request, cookie)
