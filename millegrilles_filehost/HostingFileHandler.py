@@ -504,7 +504,7 @@ class HostingFileHandler:
 
                 fuuid = file.name
 
-                stats = file.stat()
+                stats = await asyncio.to_thread(file.stat)
                 last_modified = stats.st_mtime
                 if last_modified > not_after_date_ts:
                     continue  # Skip file, is was modified since the start of this batch
@@ -615,7 +615,7 @@ async def iter_bucket_files(path_idmg: pathlib.Path):
             if bucket.is_dir():
                 for file in bucket.iterdir():
                     if file.is_file():
-                        stat = file.stat()
+                        stat = await asyncio.to_thread(file.stat)
                         fuuid_count += 1
                         fuuid_size += stat.st_size
                         yield {'name': file.name}
