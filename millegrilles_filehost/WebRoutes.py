@@ -92,7 +92,7 @@ class WebRouteHandler:
     async def handle_get_status(self, request: web.Request) -> web.Response:
         if self.__handlers.semaphore_status.locked():
             self.__logger.warning("handle_get Semaphore locked for request %s" % request.url)
-        async with self.__handlers.semaphore_web:
+        async with self.__handlers.semaphore_status:
             return web.json_response({"ok": True})
 
     async def authenticate(self, request: web.Request) -> web.Response:
