@@ -471,7 +471,7 @@ class HostfileFileTransfersBackup(HostfileFileTransfers):
 
         if path_file.exists():
             # File already transferred. Report as done.
-            self.__logger.info("Received GET backup file for %s, file already exists" % file)
+            self.__logger.debug("Received GET backup file for %s, file already exists" % file)
             return
 
         if path_work.exists():

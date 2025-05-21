@@ -728,7 +728,7 @@ async def stream_reponse(request: web.Request, filepath: pathlib.Path,
     response.content_type = 'application/stream'
     response.etag = etag
 
-    LOGGER.info("stream_reponse Stream fichier %s : Content-Length : %s, Content-Range: %s" % (fuuid, taille_transfert, range_str))
+    LOGGER.debug("stream_reponse Stream fichier %s : Content-Length : %s, Content-Range: %s" % (fuuid, taille_transfert, range_str))
 
     await response.prepare(request)
     if method == 'HEAD':
@@ -815,7 +815,7 @@ async def stream_file_response(request: web.Request, filepath: pathlib.Path, eta
     response.content_type = 'application/stream'
     response.etag = etag
 
-    LOGGER.info("stream_reponse Stream fichier %s : Content-Length : %s, Content-Range: %s" % (etag, taille_transfert, range_str))
+    LOGGER.debug("stream_reponse Stream fichier %s : Content-Length : %s, Content-Range: %s" % (etag, taille_transfert, range_str))
 
     await response.prepare(request)
     if method == 'HEAD':

@@ -224,11 +224,11 @@ async def sync_backups_v2(path_backups: pathlib.Path, session: ClientSession, ss
                 continue
 
             path_fichier_backup_work.rename(path_fichier_backup)
-            LOGGER.info("sync_backups_v2 Download backup_v2 fichier OK: %s" % fichier_download)
+            LOGGER.debug("sync_backups_v2 Download backup_v2 fichier OK: %s" % fichier_download)
         finally:
             path_fichier_backup_work.unlink(missing_ok=True)
     else:
-        LOGGER.info("sync_backups_v2 Backups sync domaine %s OK, aucuns changements sur version %s" % (domaine, version))
+        LOGGER.debug("sync_backups_v2 Backups sync domaine %s OK, aucuns changements sur version %s" % (domaine, version))
 
     for fichier_upload in fichiers_upload:
         path_fichier_backup = pathlib.Path(path_backups, domaine, 'archives', version, fichier_upload)
