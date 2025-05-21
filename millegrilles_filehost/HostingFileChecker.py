@@ -6,6 +6,8 @@ import pathlib
 import signal
 import sys
 
+from os import nice
+
 from typing import Optional
 
 from millegrilles_filehost.Configuration import FileHostConfiguration
@@ -27,13 +29,16 @@ def check_files_process(configuration: FileHostConfiguration, idmg_path: pathlib
     signal.signal(signal.SIGINT, exit_gracefully)
     signal.signal(signal.SIGTERM, exit_gracefully)
 
-    LOGGER.debug("Starting to check files")
+    # Increment niceness by 15
+    new_priority = nice(15)
+    LOGGER.debug("Starting to check files (priority: %d)" % new_priority)
     try:
         result = check_files_idmg(configuration, idmg_path, not_after_date)
         q.put(result)
     except:
         q.put(False)
     LOGGER.debug("Done checking files")
+    time.sleep(15)
 
 
 def check_files_idmg(configuration: FileHostConfiguration, idmg_path: pathlib.Path, not_after_date: datetime.datetime) -> bool:
