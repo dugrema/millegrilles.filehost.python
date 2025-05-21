@@ -3,17 +3,20 @@ import datetime
 import logging
 import json
 import math
+import multiprocessing as mp
+import multiprocessing.queues
 import pathlib
 import gzip
 import re
+
 from asyncio import TaskGroup
 from json import JSONDecodeError
 
 from aiohttp import web
 from typing import Optional, Union
-
 from shutil import rmtree
 
+from millegrilles_filehost.HostingFileChecker import check_files_process
 from millegrilles_messages.messages import Constantes
 from millegrilles_filehost.Context import FileHostContext, StoppingException
 from millegrilles_filehost.CookieUtilities import Cookie
@@ -25,6 +28,7 @@ CONST_REFRESH_LISTS_INTERVAl = 3_600 * 8    # Every 8 hours
 CONST_MAINTAIN_STAGING_INTERVAL = 3_600 * 1 # Every hour
 
 LOGGER = logging.getLogger(__name__)
+
 
 class HostingFileEventListener:
 
@@ -44,6 +48,7 @@ class HostingFileHandler:
         self.__semaphore_usage_update = context.semaphore_usage_update
         self.__event_start_filecheck = asyncio.Event()
         self.__event_manage_file_lists = asyncio.Event()
+        self.__check_files_process: Optional[multiprocessing.Process] = None
 
     async def run(self):
         await self.maintenance()
@@ -53,6 +58,8 @@ class HostingFileHandler:
         # Trigger all events to get the threads stopped
         self.__event_start_filecheck.set()
         self.__event_manage_file_lists.set()
+        if self.__check_files_process:
+            self.__check_files_process.kill()
 
     async def __scheduled_triggers_thread(self):
         interval_check = self.__context.configuration.check_interval_secs
@@ -457,7 +464,16 @@ class HostingFileHandler:
                     json.dump(filechecks_config, fp)
                 self.__logger.info(f"Starting new file check batch for IDMG:{idmg_path.name}")
 
-            complete = await self.check_files_idmg(idmg_path, not_after_date)
+            # Spawn subprocess to check files
+            response_queue = multiprocessing.Queue()
+            try:
+                self.__check_files_process = mp.Process(target=check_files_process, args=(self.__context.configuration, idmg_path, not_after_date, response_queue))
+                self.__check_files_process.start()
+                await asyncio.to_thread(self.__check_files_process.join)
+                # exit_code = self.__check_files_process.exitcode
+            finally:
+                self.__check_files_process = None
+            complete = response_queue.get_nowait()
 
             if complete:
                 # Reset not_after_date. A new date will be put in next time.
@@ -467,94 +483,6 @@ class HostingFileHandler:
 
             with open(filechecks_config_path, 'wt') as fp:
                 await asyncio.to_thread(json.dump, filechecks_config, fp)
-
-
-    async def check_files_idmg(self, idmg_path: pathlib.Path, not_after_date: datetime.datetime) -> bool:
-
-        files_checked = 0
-        bytes_checked = 0
-
-        # CONST_FILE_LIMIT = 1000
-        # CONST_BYTES_LIMIT = 1_000_000_000
-        file_count_limit = self.__context.configuration.check_batch_len
-        file_bytes_limit = self.__context.configuration.check_batch_size
-
-        idmg = idmg_path.name
-        check_start = datetime.datetime.now()
-        not_after_date_ts = not_after_date.timestamp()
-        ts_3days = (check_start - datetime.timedelta(days=3)).timestamp()
-
-        buckets_path = pathlib.Path(idmg_path, 'buckets')
-        if buckets_path.exists() is False:
-            return True  # No files yet
-
-        # Prepare the dumpster in case we find corrupted files
-        dumpster_path = pathlib.Path(idmg_path, 'dumpster')
-        await asyncio.to_thread(dumpster_path.mkdir, exist_ok=True)
-
-        corrupt_log_path = pathlib.Path(idmg_path, 'corrupt.txt')
-
-        complete: Optional[bool] = None
-
-        for bucket in buckets_path.iterdir():
-            file: pathlib.Path
-            for file in bucket.iterdir():
-                if file.is_file() is False:
-                    continue  # Only checking files
-
-                fuuid = file.name
-
-                stats = await asyncio.to_thread(file.stat)
-                last_modified = stats.st_mtime
-                if last_modified > not_after_date_ts:
-                    continue  # Skip file, is was modified since the start of this batch
-                elif last_modified > ts_3days:
-                    continue  # The file could be included in this batch but it was modified (checked) < 3 days ago. Skipping.
-
-                file_ok = await verify_hosted_file(self.__context, file)
-                if file_ok is False:
-                    self.__logger.warning(f"File IDMG:{idmg} FUUID:{fuuid} content is corrupt, moving file to dumpster")
-
-                    # Move the corrupt file to the dumpster
-                    path_dumped_file = pathlib.Path(dumpster_path, file.name)
-                    file.rename(path_dumped_file)
-
-                    # Add an entry to corrupt.txt
-                    with open(corrupt_log_path, 'at') as fp:
-                        fp.write(file.name)
-                        fp.write('\n')
-
-                else:
-                    self.__logger.debug(f"File IDMG:{idmg} FUUID:{fuuid} is OK")
-
-                files_checked += 1
-                bytes_checked += stats.st_size
-
-                if files_checked >= file_count_limit:
-                    complete = False
-                    break  # Batch limit reached
-                elif bytes_checked >= file_bytes_limit:
-                    complete = False
-
-                # Inner loop
-                if complete is not None:
-                    break  # Batch limit reached
-
-            # Outer loop
-            if complete is not None:
-                break  # Batch limit reached
-        else:
-            complete = True
-
-        check_end = datetime.datetime.now()
-        check_duration = check_end - check_start
-        if files_checked > 0:
-            self.__logger.info(f"File checking on IDMG:%s has completed a batch in %s on %s files (%s bytes)",
-                               idmg, check_duration, files_checked, bytes_checked)
-
-        if complete is None:
-            return False
-        return complete
 
     def trigger_event_manage_file_lists(self):
         self.__event_manage_file_lists.set()
@@ -949,34 +877,3 @@ def parse_range(range, taille_totale):
     }
 
     return result
-
-
-async def verify_hosted_file(context: FileHostContext, file_path: pathlib.Path) -> bool:
-    fuuid = file_path.name
-    verifier = VerificateurHachage(fuuid)
-
-    throttle = context.configuration.check_throttle_ms
-    if throttle == 0:
-        throttle = None
-    else:
-       throttle = float(throttle) / 1000
-
-    with open(file_path, 'rb') as fp:
-        while True:
-            chunk = await asyncio.to_thread(fp.read, CONST_CHUNK_SIZE)
-            if not chunk:
-                break
-
-            verifier.update(chunk)
-            if throttle:  # Throttle file check
-                await context.wait(throttle)
-
-            if context.stopping:
-                raise Exception('stopping')
-
-    try:
-        verifier.verify()
-        await asyncio.to_thread(file_path.touch)  # Modify file time, avoids re-checking in same batch
-        return True
-    except ErreurHachage:
-        return False

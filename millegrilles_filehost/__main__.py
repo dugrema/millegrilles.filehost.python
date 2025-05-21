@@ -2,6 +2,8 @@ import asyncio
 import logging
 import os
 import pathlib
+# import multiprocessing as mp
+
 from asyncio import TaskGroup
 
 from millegrilles_filehost.AuthenticationHandler import AuthenticationHandler
@@ -17,6 +19,7 @@ from millegrilles_messages.bus.BusContext import ForceTerminateExecution
 
 LOGGER = logging.getLogger(__name__)
 
+# mp.set_start_method('spawn')
 
 async def force_terminate_task_group():
     """Used to force termination of a task group."""
