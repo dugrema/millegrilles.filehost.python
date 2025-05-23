@@ -7,6 +7,16 @@ from millegrilles_filehost.Context import FileHostContext
 from millegrilles_filehost.WebRoutes import Handlers, WebRouteHandler
 
 
+async def error_middleware(app, handler):
+    async def middleware_handler(request):
+        try:
+            return await handler(request)
+        except Exception as ex:
+            logging.error(f'Unexpected error: {str(ex)}')
+            return web.Response(status=500, text='Internal Server Error')
+    return middleware_handler
+
+
 class WebServer:
 
     def __init__(self, context: FileHostContext, handlers: Handlers):
@@ -15,7 +25,7 @@ class WebServer:
         self.__context = context
         self.__handlers = handlers
 
-        self.__web_app = web.Application()
+        self.__web_app = web.Application(middlewares=[error_middleware])
 
         self.__web_sem = asyncio.BoundedSemaphore(3)
 
