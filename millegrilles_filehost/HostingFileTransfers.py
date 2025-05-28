@@ -8,7 +8,7 @@ from typing import Awaitable, Optional, Callable
 from urllib.parse import urljoin
 
 import aiohttp
-from aiohttp import ClientTimeout
+from aiohttp import ClientTimeout, ClientResponseError
 
 from millegrilles_filehost.BackupV2 import lire_header_archive_backup
 from millegrilles_filehost.Context import FileHostContext
@@ -419,6 +419,12 @@ class HostfileFileTransfersBackup(HostfileFileTransfers):
             try:
                 self.__logger.debug("Transferring: %s" % transfer)
                 await self.__transfer_file(transfer)
+            except ClientResponseError as cre:
+                if cre.status == 404:
+                    self.__logger.info(f"Error fetching backup file {file}, HTTP {cre.status}")
+                else:
+                    self.__logger.exception(f"Unhandled backup file {file} error HTTP {cre.status}")
+                await self._emit_transfer_done(idmg, command_id, file, err=str(cre))
             except asyncio.CancelledError:
                 break  # Stopping
             except Exception as e:

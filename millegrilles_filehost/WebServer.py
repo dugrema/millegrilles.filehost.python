@@ -13,11 +13,11 @@ async def error_middleware(app, handler):
     async def middleware_handler(request: web.Request):
         try:
             return await handler(request)
-        except ConnectionResetError:
-            LOGGER.info(f"Connection reset on request: {request.url}")
+        except (ConnectionError, ConnectionResetError):
+            LOGGER.info(f"Connection error/reset on request: {request.url}")
             return None
         except Exception:
-            logging.exception('error_middleware Unexpected error')
+            LOGGER.exception('error_middleware Unexpected error')
             return web.Response(status=500, text='Internal Server Error')
     return middleware_handler
 
