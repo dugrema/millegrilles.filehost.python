@@ -326,7 +326,7 @@ class HostfileFileTransfersFuuids(HostfileFileTransfers):
                     get_status.position = start_position   # Resume at position
                 elif response.status == 200:
                     # Can't resume, restarting file
-                    self.__logger.warning("Failed to resume file %s, restarting GET from start" % get_status.fuuid)
+                    self.__logger.debug("Failed to resume file %s, restarting GET from start" % get_status.fuuid)
                     fp = open(path_work, 'wb')
                     verifier = VerificateurHachage(get_status.fuuid)
                 else:
@@ -507,7 +507,7 @@ class HostfileFileTransfersBackup(HostfileFileTransfers):
                     position = start_position   # Resume at position
                 elif response.status == 200:
                     # Can't resume, restarting file
-                    self.__logger.warning("Failed to resume backup %s, restarting GET from start" % url)
+                    self.__logger.debug("Failed to resume backup %s, restarting GET from start" % url)
                     fp = open(path_work, 'wb')
                     digester = Hacheur('blake2b-512', 'base58btc')
                 else:
