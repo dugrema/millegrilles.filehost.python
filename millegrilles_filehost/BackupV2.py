@@ -384,7 +384,7 @@ def maintain_backup_versions(dir_files: pathlib.Path):
 
             # Sort all subfolders by modification date
             versions = [v for v in domain_dir.glob('*') if v.is_dir()]
-            versions.sort(key=lambda v: v.stat().st_mtime)
+            versions.sort(key=lambda v: v.stat().st_mtime, reverse=True)
 
             # Mark the latest 4 folders as not to be deleted
             skip_versions.update([v.name for v in versions[:4]])
