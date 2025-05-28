@@ -45,6 +45,9 @@ class AuthenticationHandler:
         try:
             enveloppe = await self.verify_auth_message(auth_message)
             idmg = enveloppe.idmg
+        except ConnectionRefusedError as cre:
+            self.__logger.info("Connection refused: %s" % str(cre))
+            return web.HTTPForbidden()
         except Exception:
             self.__logger.exception("Error validating auth request")
             return web.HTTPForbidden()

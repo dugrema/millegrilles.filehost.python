@@ -6,13 +6,18 @@ from aiohttp import web
 from millegrilles_filehost.Context import FileHostContext
 from millegrilles_filehost.WebRoutes import Handlers, WebRouteHandler
 
+LOGGER = logging.getLogger(__name__)
+
 
 async def error_middleware(app, handler):
-    async def middleware_handler(request):
+    async def middleware_handler(request: web.Request):
         try:
             return await handler(request)
-        except Exception as ex:
-            logging.error(f'Unexpected error: {str(ex)}')
+        except ConnectionResetError:
+            LOGGER.info(f"Connection reset on request: {request.url}")
+            return None
+        except Exception:
+            logging.exception('error_middleware Unexpected error')
             return web.Response(status=500, text='Internal Server Error')
     return middleware_handler
 

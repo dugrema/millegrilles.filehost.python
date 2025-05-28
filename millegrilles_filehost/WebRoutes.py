@@ -27,12 +27,13 @@ class Handlers:
         self.__hosting_backup_file_handler = hosting_backup_file_handler
         self.__socketio_handler = socketio_handler
 
-        self.semaphore_status = asyncio.BoundedSemaphore(value=100)     # Low impact all in memory
-        self.semaphore_auth = asyncio.BoundedSemaphore(value=100)       # Low impact all in memory
-        self.semaphore_web = asyncio.BoundedSemaphore(value=15)         # List downloads or simple fs operations
-        self.semaphore_file_put = asyncio.BoundedSemaphore(value=5)     # Largest impact on system
-        self.semaphore_file_get = asyncio.BoundedSemaphore(value=30)    # Limit concurrent files, high bandwidth
-        self.semaphore_backup = asyncio.BoundedSemaphore(value=30)      # All domains upload backups at once
+        self.semaphore_status = asyncio.BoundedSemaphore(value=50)         # Low impact all in memory
+        self.semaphore_auth = asyncio.BoundedSemaphore(value=30)           # Low impact all in memory
+        self.semaphore_web = asyncio.BoundedSemaphore(value=15)            # List downloads or simple fs operations
+        self.semaphore_file_put = asyncio.BoundedSemaphore(value=5)        # Upload of files, including verification
+        self.semaphore_file_get = asyncio.BoundedSemaphore(value=30)       # Limit concurrent files, high bandwidth
+        self.semaphore_backup = asyncio.BoundedSemaphore(value=10)         # Backup GETs and PUTs
+        self.semaphore_backup_listing = asyncio.BoundedSemaphore(value=1)  # Processing of IO intensive backup listing tasks
 
     @property
     def authentication_handlers(self):
@@ -212,9 +213,9 @@ class WebRouteHandler:
             cookie = await self.extract_authentication(request)
         except (ValueError, CookieExpired, CryptoError):
             return web.HTTPUnauthorized()
-        if self.__handlers.semaphore_backup.locked():
+        if self.__handlers.semaphore_backup_listing.locked():
             self.__logger.warning("get_backup_v2_domain_list Semaphore locked for request %s" % request.url)
-        async with self.__handlers.semaphore_backup:
+        async with self.__handlers.semaphore_backup_listing:
             return await self.__handlers.hosting_backup_file_handler.get_backup_v2_domain_list(request, cookie)
 
     async def get_backup_v2_versions_list(self, request: web.Request) -> web.Response:
@@ -222,9 +223,9 @@ class WebRouteHandler:
             cookie = await self.extract_authentication(request)
         except (ValueError, CookieExpired, CryptoError):
             return web.HTTPUnauthorized()
-        if self.__handlers.semaphore_backup.locked():
+        if self.__handlers.semaphore_backup_listing.locked():
             self.__logger.warning("get_backup_v2_versions_list Semaphore locked for request %s" % request.url)
-        async with self.__handlers.semaphore_backup:
+        async with self.__handlers.semaphore_backup_listing:
             return await self.__handlers.hosting_backup_file_handler.get_backup_v2_versions_list(request, cookie)
 
     async def get_backup_v2_archives_list(self, request: web.Request) -> web.Response:
@@ -232,9 +233,9 @@ class WebRouteHandler:
             cookie = await self.extract_authentication(request)
         except (ValueError, CookieExpired, CryptoError):
             return web.HTTPUnauthorized()
-        if self.__handlers.semaphore_backup.locked():
+        if self.__handlers.semaphore_backup_listing.locked():
             self.__logger.warning("get_backup_v2_archives_list Semaphore locked for request %s" % request.url)
-        async with self.__handlers.semaphore_backup:
+        async with self.__handlers.semaphore_backup_listing:
             return await self.__handlers.hosting_backup_file_handler.get_backup_v2_archives_list(request, cookie)
 
     async def get_backup_v2(self, request: web.Request) -> web.Response:
