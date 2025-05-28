@@ -15,7 +15,7 @@ async def error_middleware(app, handler):
             return await handler(request)
         except (ConnectionError, ConnectionResetError):
             LOGGER.info(f"Connection error/reset on request: {request.url}")
-            return None
+            return web.Response(status=100, text='Client disconnected - can retry')
         except Exception:
             LOGGER.exception('error_middleware Unexpected error')
             return web.Response(status=500, text='Internal Server Error')
