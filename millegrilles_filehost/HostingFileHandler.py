@@ -16,6 +16,7 @@ from aiohttp import web
 from typing import Optional, Union
 from shutil import rmtree
 
+from millegrilles_filehost.BackupV2 import maintain_backup_versions
 from millegrilles_filehost.HostingFileChecker import check_files_process
 from millegrilles_messages.messages import Constantes
 from millegrilles_filehost.Context import FileHostContext, StoppingException
@@ -48,6 +49,7 @@ class HostingFileHandler:
         self.__semaphore_usage_update = context.semaphore_usage_update
         self.__event_start_filecheck = asyncio.Event()
         self.__event_manage_file_lists = asyncio.Event()
+        self.__event_manage_backup_files = asyncio.Event()
         self.__check_files_process: Optional[multiprocessing.Process] = None
 
     async def run(self):
@@ -58,6 +60,7 @@ class HostingFileHandler:
         # Trigger all events to get the threads stopped
         self.__event_start_filecheck.set()
         self.__event_manage_file_lists.set()
+        self.__event_manage_backup_files.set()
         if self.__check_files_process:
             self.__check_files_process.kill()
 
@@ -81,6 +84,7 @@ class HostingFileHandler:
         # Trigger all threads
         self.__event_start_filecheck.set()
         self.__event_manage_file_lists.set()
+        self.__event_manage_backup_files.set()
         raise StoppingException()
 
     async def maintenance(self):
@@ -91,6 +95,7 @@ class HostingFileHandler:
                 group.create_task(self.__manage_staging_thread())
                 group.create_task(self.__file_checker_thread())
                 group.create_task(self.__scheduled_triggers_thread())
+                group.create_task(self.__manage_backup_files_thread())
                 group.create_task(self.__stop_thread())
                 # group.create_task(self.__emit_status_thread()),
         except* StoppingException:
@@ -274,6 +279,20 @@ class HostingFileHandler:
             await _manage_file_list(files_path, self.__semaphore_usage_update, self.emit_event)
             try:
                 await asyncio.wait_for(self.__event_manage_file_lists.wait(), CONST_REFRESH_LISTS_INTERVAl)
+                await self.__context.wait(30)  # wait 30 seconds to start to let the file system changes settle
+            except asyncio.TimeoutError:
+                pass
+
+    async def __manage_backup_files_thread(self):
+        while self.__context.stopping is False:
+            self.__event_manage_backup_files.clear()  # Reset flag for next run
+            files_path = pathlib.Path(self.__context.configuration.dir_files)
+            try:
+                await asyncio.to_thread(maintain_backup_versions, files_path)
+            except Exception:
+                self.__logger.exception("Error managing backup files")
+            try:
+                await asyncio.wait_for(self.__event_manage_backup_files.wait(), CONST_REFRESH_LISTS_INTERVAl)
                 await self.__context.wait(30)  # wait 30 seconds to start to let the file system changes settle
             except asyncio.TimeoutError:
                 pass

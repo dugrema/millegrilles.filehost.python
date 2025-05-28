@@ -6,6 +6,7 @@ import pathlib
 import math
 
 from io import BufferedReader
+from json import JSONDecodeError
 
 from aiohttp import ClientSession
 from ssl import SSLContext
@@ -352,3 +353,46 @@ async def get_backup_v2_domaines(path_backup: pathlib.Path, domaines: Optional[l
                     domaine['cles'] = cles_dict
 
     return domaines_reponse
+
+
+def maintain_backup_versions(dir_files: pathlib.Path):
+    """
+    Keeps a number of backup versions and deletes the older ones.
+    :return:
+    """
+    idmgs = [d for d in dir_files.glob('*') if d.is_dir()]
+
+    for idmg_path in idmgs:
+        LOGGER.info(f"Maintaining backup files for {idmg_path.name}")
+        path_backup = pathlib.Path(idmg_path, 'backup_v2')
+        if path_backup.exists() is False:
+            continue  # Backup directory has not been created
+
+        for domain_dir in path_backup.iterdir():
+            path_info = pathlib.Path(domain_dir, 'courant.json')
+
+            skip_versions: set[str] = set()
+
+            try:
+                with open(path_info, 'rt') as fichier:
+                    current_information = json.load(fichier)
+                current_version = current_information['version']
+                skip_versions.add(current_version)
+            except (FileNotFoundError, KeyError, AttributeError, JSONDecodeError):
+                # No current backup information, skip domain
+                continue
+
+            # Sort all subfolders by modification date
+            versions = [v for v in domain_dir.glob('*') if v.is_dir()]
+            versions.sort(key=lambda v: v.stat().st_mtime)
+
+            # Mark the latest 4 folders as not to be deleted
+            skip_versions.update([v.name for v in versions[:4]])
+
+            # Iterate through all versions
+            for v in versions:
+                # Check if this version should be kept
+                if v.name not in skip_versions:
+                    # Delete version
+                    LOGGER.info(f"Removing backup {idmg_path.name}/{domain_dir.name} version {v.name}")
+                    shutil.rmtree(v)
