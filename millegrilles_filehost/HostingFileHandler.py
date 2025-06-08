@@ -181,7 +181,7 @@ class HostingFileHandler:
         user_id = cookie.get('user_id')
         if roles and 'filecontroler' in roles:
             pass
-        elif roles and exchanges and 'media' in roles and Constantes.SECURITE_PROTEGE in exchanges:
+        elif roles and exchanges and 'media' in roles and Constantes.SECURITE_PRIVE in exchanges:
             pass  # Media transcoder
         elif roles and exchanges and 'web_scraper' in roles and Constantes.SECURITE_PUBLIC in exchanges:
             pass  # Data Collector's web scraper
@@ -320,7 +320,7 @@ class HostingFileHandler:
         user_id = cookie.get('user_id')
         if roles and 'filecontroler' in roles:
             pass
-        elif roles and exchanges and 'media' in roles and Constantes.SECURITE_PROTEGE in exchanges:
+        elif roles and exchanges and 'media' in roles and Constantes.SECURITE_PRIVE in exchanges:
             pass  # Media transcoder
         elif roles and 'usager' in roles and user_id is not None:
             pass
@@ -368,7 +368,7 @@ class HostingFileHandler:
         user_id = cookie.get('user_id')
         if roles and 'filecontroler' in roles:
             pass
-        elif roles and exchanges and 'media' in roles and Constantes.SECURITE_PROTEGE in exchanges:
+        elif roles and exchanges and 'media' in roles and Constantes.SECURITE_PRIVE in exchanges:
             pass  # Media transcoder
         elif roles and 'usager' in roles and user_id is not None:
             pass
