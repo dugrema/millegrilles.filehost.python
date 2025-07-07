@@ -511,7 +511,7 @@ class HostingFileHandler:
             if complete:
                 # Reset not_after_date. A new date will be put in next time.
                 filechecks_config['not_after_date'] = None
-                days_check = self.__context.configuration.continual_check
+                days_check = self.__context.configuration.continual_check_days
                 self.__logger.debug(f"File check on IDMG:{idmg_path.name} has completed all files (modified more than {days_check} days ago), resetting for next check")
             filechecks_config['last_batch_date'] = math.floor(datetime.datetime.now().timestamp())
 
