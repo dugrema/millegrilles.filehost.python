@@ -78,7 +78,8 @@ class HostingBackupFileHandler:
             return web.HTTPConflict()  # File already received
 
         # Ensure the directory exists or can be created
-        await asyncio.to_thread(path_version.mkdir, parents=True, exist_ok=True)
+        # await asyncio.to_thread(path_version.mkdir, parents=True, exist_ok=True)
+        path_version.mkdir(parents=True, exist_ok=True)
 
         self.__logger.debug("handle_put_backup_v2 %s/%s/%s/%s" % (domain, file_type, version, filename))
         suffix_digest_file = filename.split('.')[0].split('_').pop()
@@ -92,6 +93,8 @@ class HostingBackupFileHandler:
                     output.write(chunk)
                     digester.update(chunk)
 
+                del chunk  # Free memory, processing not done
+
                 digest_result = digester.finalize()
                 self.__logger.debug("handle_put_backup_v2 Digest result for file %s = %s" % (filename, digest_result))
                 if digest_result.endswith(suffix_digest_file) is False:
@@ -100,7 +103,8 @@ class HostingBackupFileHandler:
 
             with open(path_file_work, 'rb') as output:
                 # Lire le header du fichier de backup
-                header_archive = await asyncio.to_thread(lire_header_archive_backup, output)
+                # header_archive = await asyncio.to_thread(lire_header_archive_backup, output)
+                header_archive = lire_header_archive_backup(output)
 
             if domain != header_archive['domaine']:
                 self.__logger.error("handle_put_backup_v2 Mismatch de domaine fourni %s et celui du header : %s" % (domain, filename))
@@ -149,7 +153,8 @@ class HostingBackupFileHandler:
                 #     await asyncio.to_thread(output.write, content)
         finally:
             # Cleanup
-            await asyncio.to_thread(path_file_work.unlink, missing_ok=True)
+            # await asyncio.to_thread(path_file_work.unlink, missing_ok=True)
+            path_file_work.unlink(missing_ok=True)
 
         return web.HTTPOk()
 
@@ -160,15 +165,18 @@ class HostingBackupFileHandler:
         info_version = {'version': version, 'date': fin_backup_secs}
         path_fichier_info = pathlib.Path(path_version, 'info.json')
         with open(path_fichier_info, 'wt') as fichier_info:
-            await asyncio.to_thread(json.dump, info_version, fichier_info)
+            # await asyncio.to_thread(json.dump, info_version, fichier_info)
+            json.dump(info_version, fichier_info)
 
         # Remplacer le fichier courant.json
         path_fichier_courant = pathlib.Path(path_domain, 'courant.json')
         path_fichier_courant.unlink(missing_ok=True)
         with open(path_fichier_info, 'rb') as src:
-            content = await asyncio.to_thread(src.read)
+            # content = await asyncio.to_thread(src.read)
+            content = src.read()
         with open(path_fichier_courant, 'wb') as output:
-            await asyncio.to_thread(output.write, content)
+            # await asyncio.to_thread(output.write, content)
+            output.write(content)
 
     async def get_backup_v2_domain_list(self, request: web.Request, cookie: Cookie) -> Union[web.Response, web.StreamResponse]:
         # This is a read-write/admin level function. Ensure proper roles/security level

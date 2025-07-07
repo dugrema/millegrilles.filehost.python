@@ -304,7 +304,9 @@ class HostingFileHandler:
             self.__event_manage_backup_files.clear()  # Reset flag for next run
             files_path = pathlib.Path(self.__context.configuration.dir_files)
             try:
+                self.__logger.debug("maintain_backup_versions START")
                 await asyncio.to_thread(maintain_backup_versions, files_path)
+                self.__logger.debug("maintain_backup_versions DONE")
             except Exception:
                 self.__logger.exception("Error managing backup files")
             try:
@@ -370,10 +372,13 @@ class HostingFileHandler:
         try:
             with open(path_part_work, 'wb') as output:
                 async for chunk in request.content.iter_chunked(CONST_CHUNK_SIZE):
-                    await asyncio.to_thread(output.write, chunk)
-                await asyncio.to_thread(path_part_work.rename, path_part)
+                    # await asyncio.to_thread(output.write, chunk)
+                    output.write(chunk)
+                # await asyncio.to_thread(path_part_work.rename, path_part)
+                path_part_work.rename(path_part)
         finally:
-            await asyncio.to_thread(path_part_work.unlink, missing_ok=True)  # Ensure cleanup
+            # await asyncio.to_thread(path_part_work.unlink, missing_ok=True)  # Ensure cleanup
+            path_part_work.unlink(missing_ok=True)
 
         return web.HTTPOk()
 
@@ -399,7 +404,8 @@ class HostingFileHandler:
         # Check if file exists
         fuuid = request.match_info['fuuid']
         try:
-            path_fuuid, path_staging = await asyncio.to_thread(prepare_dir, path_idmg, fuuid)
+            # path_fuuid, path_staging = await asyncio.to_thread(prepare_dir, path_idmg, fuuid)
+            path_fuuid, path_staging = prepare_dir(path_idmg, fuuid)
         except FileExistsError:
             return web.HTTPConflict()
 
@@ -413,14 +419,17 @@ class HostingFileHandler:
 
         try:
             with open(path_workfile, 'wb') as output:
-                for part in file_part_reader(path_fuuid_staging):
-                    with open(part, 'rb') as input_file:
-                        while True:
-                            chunk = await asyncio.to_thread(input_file.read, CHUNK_SIZE)
-                            if len(chunk) == 0:
-                                break
-                            await asyncio.to_thread(output.write, chunk)
-                            verifier.update(chunk)
+                await asyncio.to_thread(rebuild_file, path_fuuid_staging, output, verifier)
+                # for part in file_part_reader(path_fuuid_staging):
+                #     with open(part, 'rb') as input_file:
+                #         while True:
+                #             # chunk = await asyncio.to_thread(input_file.read, CHUNK_SIZE)
+                #             chunk = input_file.read(CHUNK_SIZE)
+                #             if len(chunk) == 0:
+                #                 break
+                #             # await asyncio.to_thread(output.write, chunk)
+                #             output.write(chunk)
+                #             verifier.update(chunk)
 
             verifier.verify()  # Raises exception on error
 
@@ -518,7 +527,8 @@ class HostingFileHandler:
             filechecks_config['last_batch_date'] = math.floor(datetime.datetime.now().timestamp())
 
             with open(filechecks_config_path, 'wt') as fp:
-                await asyncio.to_thread(json.dump, filechecks_config, fp)
+                # await asyncio.to_thread(json.dump, filechecks_config, fp)
+                json.dump(filechecks_config, fp)
 
     def trigger_event_manage_file_lists(self):
         self.__event_manage_file_lists.set()
@@ -532,7 +542,7 @@ async def receive_fuuid(request: web.Request, workfile_path: pathlib.Path, fuuid
 
     with open(workfile_path, 'wb') as output:
         async for chunk in request.content.iter_chunked(CONST_CHUNK_SIZE):
-            await asyncio.to_thread(output.write, chunk)
+            output.write(chunk)
             verifier.update(chunk)
 
     if verifier:
@@ -624,13 +634,16 @@ async def _manage_file_list(files_path: pathlib.Path, semaphore: asyncio.Semapho
                             LOGGER.warning("Error emitting usage event: %s" % e)
 
         # Delete old file
-        await asyncio.to_thread(path_filelist.unlink, missing_ok=True)
+        # await asyncio.to_thread(path_filelist.unlink, missing_ok=True)
+        path_filelist.unlink(missing_ok=True)
         # Replace by new file
-        await asyncio.to_thread(path_filelist_work.rename, path_filelist)
+        # await asyncio.to_thread(path_filelist_work.rename, path_filelist)
+        path_filelist_work.rename(path_filelist)
 
         # Remove incremental list
         path_filelist_incremental = pathlib.Path(idmg_path, 'list_incremental.txt')
-        await asyncio.to_thread(path_filelist_incremental.unlink, missing_ok=True)
+        # await asyncio.to_thread(path_filelist_incremental.unlink, missing_ok=True)
+        path_filelist_incremental.unlink(missing_ok=True)
 
 
 def file_part_reader(path_parts: pathlib.Path):
@@ -659,14 +672,17 @@ async def _manage_staging(files_path: pathlib.Path):
             continue  # No staging, skip
 
         for item in staging_path.iterdir():
-            stat = await asyncio.to_thread(item.stat)
+            await asyncio.sleep(0)  # Yield
+            # stat = await asyncio.to_thread(item.stat)
+            stat = item.stat()
             if stat.st_mtime > expired_epoch:
                 continue  # Not expired
 
             # Expired item, delete it
             LOGGER.info("Removing stale staging item %s" % item)
             if item.is_file():
-                await asyncio.to_thread(item.unlink)
+                # await asyncio.to_thread(item.unlink)
+                item.unlink()
             elif item.is_dir():
                 await asyncio.to_thread(rmtree, item, ignore_errors=True)
             else:
@@ -680,7 +696,8 @@ async def get_file_usage(path_idmg: pathlib.Path, semaphore: asyncio.Semaphore):
     path_usage_file = pathlib.Path(path_idmg, 'usage.json')
     async with semaphore:
         with open(path_usage_file, 'rt') as fp:
-            usage = await asyncio.to_thread(json.load, fp)
+            # usage = await asyncio.to_thread(json.load, fp)
+            usage = json.load(fp)
 
     return usage
 
@@ -694,7 +711,8 @@ async def update_file_usage(path_idmg: pathlib.Path, path_fuuid: pathlib.Path, s
     async with semaphore:
         try:
             with open(path_usage_file, 'r+') as fp:
-                usage_file = await asyncio.to_thread(json.load, fp)
+                # usage_file = await asyncio.to_thread(json.load, fp)
+                usage_file = json.load(fp)
                 fuuid = usage_file['fuuid']
                 fuuid['count'] = fuuid['count'] + 1
                 fuuid['size'] = fuuid['size'] + file_size
@@ -705,7 +723,8 @@ async def update_file_usage(path_idmg: pathlib.Path, path_fuuid: pathlib.Path, s
         except FileNotFoundError:
             with open(path_usage_file, 'wt') as fp:
                 usage_file = {'date': now, 'fuuid': {'count': 1, 'size': file_size}}
-                await asyncio.to_thread(json.dump, usage_file, fp)
+                # await asyncio.to_thread(json.dump, usage_file, fp)
+                json.dump(usage_file, fp)
 
     return usage_file
 
@@ -915,3 +934,16 @@ def parse_range(range, taille_totale):
     }
 
     return result
+
+
+def rebuild_file(path_staging: pathlib.Path, output, verifier):
+    for part in file_part_reader(path_staging):
+        with open(part, 'rb') as input_file:
+            while True:
+                # chunk = await asyncio.to_thread(input_file.read, CHUNK_SIZE)
+                chunk = input_file.read(CHUNK_SIZE)
+                if len(chunk) == 0:
+                    break
+                # await asyncio.to_thread(output.write, chunk)
+                output.write(chunk)
+                verifier.update(chunk)
