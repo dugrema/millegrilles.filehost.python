@@ -115,9 +115,15 @@ class SocketioHandler(StopListener):
 
         # Remove sid from dict
         try:
+            idmg = self.__sids_idmg[sid]
             del self.__sids_idmg[sid]
         except KeyError:
-            pass
+            self.__logger.warning(f"Error removing SID:{sid} (unknown)")
+        else:
+            try:
+                await self.__sio.leave_room(sid, room='idmg/%s' % idmg)
+            except:
+                self.__logger.exception(f"SID:{sid} Error leaving room {idmg}")
 
     async def on_usage(self, sid: str):
         try:

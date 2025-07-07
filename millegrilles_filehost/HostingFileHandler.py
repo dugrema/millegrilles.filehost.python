@@ -290,7 +290,9 @@ class HostingFileHandler:
         while self.__context.stopping is False:
             self.__event_manage_file_lists.clear()  # Reset flag for next run
             files_path = pathlib.Path(self.__context.configuration.dir_files)
+            self.__logger.info("Start managing file list")
             await _manage_file_list(files_path, self.__semaphore_usage_update, self.emit_event)
+            self.__logger.info("Done managing file list")
             try:
                 await asyncio.wait_for(self.__event_manage_file_lists.wait(), CONST_REFRESH_LISTS_INTERVAl)
                 await self.__context.wait(30)  # wait 30 seconds to start to let the file system changes settle
@@ -608,16 +610,18 @@ async def _manage_file_list(files_path: pathlib.Path, semaphore: asyncio.Semapho
                 try:
                     filename: str = bucket_info['name']
                     filename_bytes = filename.encode('utf-8') + b'\n'
-                    await asyncio.to_thread(output.write, filename_bytes)
+                    # await asyncio.to_thread(output.write, filename_bytes)
+                    output.write(filename_bytes)
                 except KeyError:
                     # Quota information
                     async with semaphore:
                         with open(path_usage, 'wt') as output_usage:
-                            await asyncio.to_thread(json.dump, bucket_info, output_usage)
-                            try:
-                                await emit_event(idmg, 'usage', bucket_info)
-                            except Exception as e:
-                                LOGGER.warning("Error emitting usage event: %s" % e)
+                            # await asyncio.to_thread(json.dump, bucket_info, output_usage)
+                            json.dump(bucket_info, output_usage)
+                        try:
+                            await emit_event(idmg, 'usage', bucket_info)
+                        except Exception as e:
+                            LOGGER.warning("Error emitting usage event: %s" % e)
 
         # Delete old file
         await asyncio.to_thread(path_filelist.unlink, missing_ok=True)
