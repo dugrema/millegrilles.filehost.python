@@ -27,12 +27,12 @@ class Handlers:
         self.__hosting_backup_file_handler = hosting_backup_file_handler
         self.__socketio_handler = socketio_handler
 
-        self.semaphore_status = asyncio.BoundedSemaphore(value=50)         # Low impact all in memory
-        self.semaphore_auth = asyncio.BoundedSemaphore(value=30)           # Low impact all in memory
-        self.semaphore_web = asyncio.BoundedSemaphore(value=15)            # List downloads or simple fs operations
+        self.semaphore_status = asyncio.BoundedSemaphore(value=20)         # Low impact all in memory
+        self.semaphore_auth = asyncio.BoundedSemaphore(value=20)           # Low impact all in memory
+        self.semaphore_web = asyncio.BoundedSemaphore(value=10)            # List downloads or simple fs operations
         self.semaphore_file_put = asyncio.BoundedSemaphore(value=5)        # Upload of files, including verification
-        self.semaphore_file_get = asyncio.BoundedSemaphore(value=30)       # Limit concurrent files, high bandwidth
-        self.semaphore_backup = asyncio.BoundedSemaphore(value=10)         # Backup GETs and PUTs
+        self.semaphore_file_get = asyncio.BoundedSemaphore(value=12)       # Limit concurrent files, high bandwidth
+        self.semaphore_backup = asyncio.BoundedSemaphore(value=4)          # Backup GETs and PUTs
         self.semaphore_backup_listing = asyncio.BoundedSemaphore(value=1)  # Processing of IO intensive backup listing tasks
 
     @property
