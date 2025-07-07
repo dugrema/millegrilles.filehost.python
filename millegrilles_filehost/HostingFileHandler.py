@@ -66,11 +66,21 @@ class HostingFileHandler:
 
     async def __scheduled_triggers_thread(self):
         interval_check = self.__context.configuration.check_interval_secs
+
         if interval_check < 15:
             interval_check = 15
+
+        reset = True  # Used to ensure at least one interval occurs between file checks
         while self.__context.stopping is False:
-            self.__event_start_filecheck.set()
+            # Wait before starting
             await self.__context.wait(interval_check)
+
+            if reset:  # Flag was clear before the wait, start new check
+                self.__event_start_filecheck.set()
+                reset = False
+            else:
+                # Check if the flag has been cleared
+                reset = self.__event_start_filecheck.is_set() is False
 
     def add_event_listener(self, listener: HostingFileEventListener):
         self.__event_listeners.append(listener)
@@ -93,11 +103,15 @@ class HostingFileHandler:
             async with TaskGroup() as group:
                 group.create_task(self.__manage_file_list_thread())
                 group.create_task(self.__manage_staging_thread())
-                group.create_task(self.__file_checker_thread())
-                group.create_task(self.__scheduled_triggers_thread())
                 group.create_task(self.__manage_backup_files_thread())
                 group.create_task(self.__stop_thread())
                 # group.create_task(self.__emit_status_thread()),
+
+                if self.__context.configuration.check_interval_secs:
+                    # Enable continual background check
+                    group.create_task(self.__file_checker_thread())
+                    group.create_task(self.__scheduled_triggers_thread())
+
         except* StoppingException:
             pass
 
@@ -450,7 +464,7 @@ class HostingFileHandler:
             except Exception:
                 self.__logger.exception("Error handling file checks")
 
-            self.__event_start_filecheck.clear()  # Wait for next trigger
+            self.__event_start_filecheck.clear()  # Ensure we wait for next trigger
 
     async def check_files(self):
         """
@@ -497,7 +511,8 @@ class HostingFileHandler:
             if complete:
                 # Reset not_after_date. A new date will be put in next time.
                 filechecks_config['not_after_date'] = None
-                self.__logger.debug(f"File check on IDMG:{idmg_path.name} has completed all files (modified more than 3 days ago), resetting for next check")
+                days_check = self.__context.configuration.continual_check
+                self.__logger.debug(f"File check on IDMG:{idmg_path.name} has completed all files (modified more than {days_check} days ago), resetting for next check")
             filechecks_config['last_batch_date'] = math.floor(datetime.datetime.now().timestamp())
 
             with open(filechecks_config_path, 'wt') as fp:

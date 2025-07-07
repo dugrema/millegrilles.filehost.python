@@ -54,7 +54,8 @@ def check_files_idmg(configuration: FileHostConfiguration, idmg_path: pathlib.Pa
     idmg = idmg_path.name
     check_start = datetime.datetime.now()
     not_after_date_ts = not_after_date.timestamp()
-    ts_3days = (check_start - datetime.timedelta(days=3)).timestamp()
+    days_check = configuration.continual_check_days
+    ts_days_check = (check_start - datetime.timedelta(days=days_check)).timestamp()
 
     buckets_path = pathlib.Path(idmg_path, 'buckets')
     if buckets_path.exists() is False:
@@ -80,8 +81,8 @@ def check_files_idmg(configuration: FileHostConfiguration, idmg_path: pathlib.Pa
             last_modified = stats.st_mtime
             if last_modified > not_after_date_ts:
                 continue  # Skip file, is was modified since the start of this batch
-            elif last_modified > ts_3days:
-                continue  # The file could be included in this batch but it was modified (checked) < 3 days ago. Skipping.
+            elif last_modified > ts_days_check:
+                continue  # The file could be included in this batch but it was modified (checked) < N days ago. Skipping.
 
             file_ok = verify_hosted_file(file, check_throttle_ms)
             if file_ok is False:

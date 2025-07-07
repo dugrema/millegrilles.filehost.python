@@ -18,7 +18,6 @@ ENV_WEB_PORT = 'WEB_PORT'
 ENV_CHECK_THROTTLE_MS = 'CHECK_THROTTLE_MS'
 ENV_CHECK_BATCH_LEN = 'CHECK_BATCH_LEN'
 ENV_CHECK_BATCH_SIZE = 'CHECK_BATCH_SIZE'
-ENV_CHECK_INTERVAL_SECS = 'CHECK_INTERVAL_SECS'
 
 # Default values
 DEFAULT_DIR_CONFIGURATION="/var/opt/millegrilles/filehost/configuration"
@@ -30,7 +29,7 @@ DEFAULT_WEB_PORT=443
 DEFAULT_CHECK_THROTTLE_MS=10
 DEFAULT_CHECK_BATCH_LEN=10_000
 DEFAULT_CHECK_BATCH_SIZE=10_000_000_000
-DEFAULT_CHECK_INTERVAL_SECS=300
+DEFAULT_CHECK_DAYS=30
 
 
 def _parse_command_line():
@@ -38,6 +37,16 @@ def _parse_command_line():
     parser.add_argument(
         '--verbose', action="store_true", required=False,
         help="More logging"
+    )
+
+    parser.add_argument(
+        '--continualcheck', type=int, required=False,
+        help="Continual background checking of files, check a batch of files every N seconds"
+    )
+
+    parser.add_argument(
+        '--checkdays', type=int, default=DEFAULT_CHECK_DAYS, required=False,
+        help="For the continual background checking, try to check all files every N days"
     )
 
     args = parser.parse_args()
@@ -61,6 +70,7 @@ def __adjust_logging(args: argparse.Namespace):
 class FileHostConfiguration:
 
     def __init__(self):
+        self.__logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
         self.dir_configuration: str = DEFAULT_DIR_CONFIGURATION
         self.dir_files: str = DEFAULT_DIR_FILES
         self.dir_data: str = DEFAULT_DIR_DATA
@@ -72,9 +82,10 @@ class FileHostConfiguration:
         self.check_throttle_ms: int = DEFAULT_CHECK_THROTTLE_MS  # Default throttle on file check - 0 disables throttle
         self.check_batch_len: int = DEFAULT_CHECK_BATCH_LEN
         self.check_batch_size: int = DEFAULT_CHECK_BATCH_SIZE
-        self.check_interval_secs: int = DEFAULT_CHECK_INTERVAL_SECS
+        self.continual_check_days: int = DEFAULT_CHECK_DAYS
+        self.check_interval_secs: Optional[int] = None
 
-    def parse_config(self, _args: argparse.Namespace):
+    def parse_config(self, args: argparse.Namespace):
         self.dir_configuration = os.environ.get(ENV_DIR_CONFIGURATION) or self.dir_configuration
         self.dir_files = os.environ.get(ENV_DIR_FILES) or self.dir_files
         self.dir_data = os.environ.get(ENV_DIR_DATA) or self.dir_data
@@ -101,9 +112,16 @@ class FileHostConfiguration:
         if check_batch_size:
             self.check_batch_size = int(check_batch_size)
 
-        check_interval_secs = os.environ.get(ENV_CHECK_INTERVAL_SECS)
-        if check_interval_secs:
-            self.check_interval_secs = int(check_interval_secs)
+        if args.continualcheck:
+            self.__logger.info(f"Enabling continual background file check every {args.continualcheck} seconds")
+            self.check_interval_secs = args.continualcheck
+
+            if args.checkdays:
+                # Override default number of days for rotating file checks
+                self.__logger.info(f"Checking files every {args.checkdays} days")
+                self.continual_check_days = args.checkdays
+        else:
+            self.__logger.info(f"Disabling continual background file check")
 
     @staticmethod
     def load():
