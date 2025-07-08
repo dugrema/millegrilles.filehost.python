@@ -363,7 +363,10 @@ class HostingFileHandler:
         path_staging.mkdir(parents=True, exist_ok=True)
         path_part = pathlib.Path(path_staging, str(position) + '.part')
         if path_part.exists():
-            return web.HTTPPreconditionFailed()  # 412 - Indicates the part is already uploaded and valid
+            # Find the current position
+            current_position = await asyncio.to_thread(find_current_upload_position, path_staging)
+            headers = {'X-current-position': str(current_position)}
+            return web.HTTPPreconditionFailed(headers=headers)  # 412 - Indicates the part is already uploaded and valid
 
         path_part_work = pathlib.Path(path_staging, str(position) + '.work')
         if path_part_work.exists():
@@ -947,3 +950,14 @@ def rebuild_file(path_staging: pathlib.Path, output, verifier):
                 # await asyncio.to_thread(output.write, chunk)
                 output.write(chunk)
                 verifier.update(chunk)
+
+
+def find_current_upload_position(path_staging: pathlib.Path):
+    max_position = 0
+    for part in path_staging.iterdir():
+        if part.is_file() and part.name.endswith('.part'):
+            position = int(part.name.split('.')[0])
+            if position >= max_position:
+                stat_value = part.stat()
+                max_position = position + stat_value.st_size
+    return max_position
