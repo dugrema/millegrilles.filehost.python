@@ -1,4 +1,4 @@
-FROM registry.millegrilles.com/millegrilles/messages_python:2025.4.104 as stage1
+FROM registry.millegrilles.com/millegrilles/messages_python:2025.4.107 as stage1
 
 # Pour offline build
 #ENV PIP_FIND_LINKS=$BUILD_FOLDER/pip \

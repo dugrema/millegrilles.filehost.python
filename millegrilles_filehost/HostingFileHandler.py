@@ -42,10 +42,12 @@ class HostingFileEventListener:
 
 class FileFinishingJob:
 
-    def __init__(self, fuuid, staging: pathlib.Path, work_file: pathlib.Path, done_event: asyncio.Event, verify=True):
+    def __init__(self, fuuid, staging: pathlib.Path, work_file: pathlib.Path, path_fuuid: pathlib.Path, cookie: Cookie, done_event: asyncio.Event, verify=True):
         self.fuuid = fuuid
         self.staging = staging
         self.work_file = work_file
+        self.path_fuuid = path_fuuid
+        self.cookie = cookie
         self.done_event = done_event
         self.verify = verify
         self.file_ok = False
@@ -119,7 +121,7 @@ class HostingFileHandler:
             if job is None or self.__context.stopping:
                 return  # Stopping
             try:
-                await finish_file(job)
+                await self.__finish_file(job)
             except Exception:
                 self.__logger.exception("Unhandled exception in __file_finishing_thread")
             finally:
@@ -254,14 +256,15 @@ class HostingFileHandler:
             # Receive file and move to bucket
             await receive_fuuid(request, path_workfile, fuuid)
             await asyncio.to_thread(path_workfile.rename, path_fuuid)
+            await add_file_incremental_list(path_filelist_incremental, fuuid)
 
-            # Add file to incremental list.
-            if path_filelist_incremental.exists():
-                flag = 'at'  # Append
-            else:
-                flag = 'wt'  # Create new/overwrite
-            with open(path_filelist_incremental, flag) as output:
-                await asyncio.to_thread(output.write, fuuid + '\n')
+            # # Add file to incremental list.
+            # if path_filelist_incremental.exists():
+            #     flag = 'at'  # Append
+            # else:
+            #     flag = 'wt'  # Create new/overwrite
+            # with open(path_filelist_incremental, flag) as output:
+            #     await asyncio.to_thread(output.write, fuuid + '\n')
         finally:
             # Ensure workfile is deleted
             await asyncio.to_thread(path_workfile.unlink, missing_ok=True)
@@ -449,35 +452,18 @@ class HostingFileHandler:
         path_workfile = pathlib.Path(path_staging, fuuid + '.work')
 
         done_event = asyncio.Event()
-        finish_job = FileFinishingJob(fuuid, path_fuuid_staging, path_workfile, done_event)
+        finish_job = FileFinishingJob(fuuid, path_fuuid_staging, path_workfile, path_fuuid, cookie, done_event)
         await self.__file_finishing_queue.put(finish_job)
 
         try:
-            try:
-                await asyncio.wait_for(done_event.wait(), 600)  # Wait for 10 minutes max
-            except asyncio.TimeoutError:
-                self.__logger.warning("Timed out waiting for file %s to finish", fuuid)
-                return web.HTTPFailedDependency()  # Signal re-upload required, connection should already have been closed.
+            await asyncio.wait_for(done_event.wait(), 120)  # Wait for 2 minutes max - this blocks other uploads
+        except asyncio.TimeoutError:
+            self.__logger.warning("Timed out waiting for file %s to finish", fuuid)
+            return web.HTTPAccepted()  # Signals processing is not completed.
 
-            # File is good
-            if finish_job.file_ok:
-                path_workfile.rename(path_fuuid)
-
-                # Cleanup staging
-                await asyncio.to_thread(rmtree, path_fuuid_staging, ignore_errors=True)
-            else:
-                # Cleanup fuuid staging, files are bad
-                await asyncio.to_thread(rmtree, path_fuuid_staging, ignore_errors=True)
-                return web.HTTPFailedDependency()  # Staged content bad, has to be re-uploaded.
-        finally:
-            path_workfile.unlink(missing_ok=True)
-
-        # Increment filecount/file size
-        try:
-            usage = await self.update_file_usage(path_fuuid)
-            await self.emit_event(idmg, 'newFuuid', {'file': fuuid, 'usage': usage})
-        except:
-            self.__logger.exception("Error updating file usage information")
+        # File is good
+        if not finish_job.file_ok:
+            return web.HTTPFailedDependency()  # Staged content bad, has to be re-uploaded.
 
         return web.HTTPOk()
 
@@ -559,6 +545,51 @@ class HostingFileHandler:
 
     def trigger_event_manage_file_lists(self):
         self.__event_manage_file_lists.set()
+
+    async def __finish_file(self, job: FileFinishingJob):
+        fuuid = job.fuuid
+        path_workfile = job.work_file
+        path_fuuid_staging = job.staging
+        idmg = job.cookie.idmg
+        verifier = VerificateurHachage(fuuid)
+
+        try:
+            with open(path_workfile, 'wb') as output:
+                await asyncio.to_thread(rebuild_file, path_fuuid_staging, output, verifier)
+
+            try:
+                # verifier.update(b"012345")  # Corrupt file
+                verifier.verify()  # Raises exception on error
+                job.file_ok = True
+
+                # File is good, transfer to buckets
+                path_workfile.rename(job.path_fuuid)
+
+                # Cleanup staging
+                await asyncio.to_thread(rmtree, path_fuuid_staging, ignore_errors=True)
+
+                try:
+                    # Add file to incremental list
+                    path_idmg = pathlib.Path(self.__context.configuration.dir_files, idmg)
+                    path_filelist_incremental = pathlib.Path(path_idmg, 'list_incremental.txt')
+                    await add_file_incremental_list(path_filelist_incremental, fuuid)
+
+                    # Update usage statistics
+                    usage = await self.update_file_usage(job.path_fuuid)
+
+                    # Emit new file event
+                    await self.emit_event(idmg, 'newFuuid', {'file': fuuid, 'usage': usage})
+                except:
+                    self.__logger.exception("Error updating file usage information")
+
+            except ErreurHachage:
+                job.file_ok = False
+                # Cleanup fuuid staging, files are bad
+                await asyncio.to_thread(rmtree, path_fuuid_staging, ignore_errors=True)
+
+        finally:
+            job.done_event.set()
+            path_workfile.unlink(missing_ok=True)
 
 
 async def receive_fuuid(request: web.Request, workfile_path: pathlib.Path, fuuid: Optional[str] = None):
@@ -987,20 +1018,11 @@ def find_current_upload_position(path_staging: pathlib.Path):
     return max_position
 
 
-async def finish_file(job: FileFinishingJob):
-    fuuid = job.fuuid
-    path_workfile = job.work_file
-    path_fuuid_staging = job.staging
-    verifier = VerificateurHachage(fuuid)
-
-    with open(path_workfile, 'wb') as output:
-        await asyncio.to_thread(rebuild_file, path_fuuid_staging, output, verifier)
-
-    try:
-        # verifier.update(b"012345")  # Corrupt
-        verifier.verify()  # Raises exception on error
-        job.file_ok = True
-    except ErreurHachage:
-        job.file_ok = False
-
-    job.done_event.set()
+async def add_file_incremental_list(path_filelist_incremental: pathlib.Path, fuuid: str):
+    # Add file to incremental list.
+    if path_filelist_incremental.exists():
+        flag = 'at'  # Append
+    else:
+        flag = 'wt'  # Create new/overwrite
+    with open(path_filelist_incremental, flag) as output:
+        await asyncio.to_thread(output.write, fuuid + '\n')
