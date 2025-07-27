@@ -40,6 +40,17 @@ class HostingFileEventListener:
         pass
 
 
+class FileFinishingJob:
+
+    def __init__(self, fuuid, staging: pathlib.Path, work_file: pathlib.Path, done_event: asyncio.Event, verify=True):
+        self.fuuid = fuuid
+        self.staging = staging
+        self.work_file = work_file
+        self.done_event = done_event
+        self.verify = verify
+        self.file_ok = False
+
+
 class HostingFileHandler:
 
     def __init__(self, context: FileHostContext):
@@ -51,6 +62,7 @@ class HostingFileHandler:
         self.__event_manage_file_lists = asyncio.Event()
         self.__event_manage_backup_files = asyncio.Event()
         self.__check_files_process: Optional[multiprocessing.Process] = None
+        self.__file_finishing_queue: asyncio.Queue[Optional[FileFinishingJob]] = asyncio.Queue(maxsize=20)
 
     async def run(self):
         await self.maintenance()
@@ -61,6 +73,10 @@ class HostingFileHandler:
         self.__event_start_filecheck.set()
         self.__event_manage_file_lists.set()
         self.__event_manage_backup_files.set()
+        try:
+            self.__file_finishing_queue.put_nowait(None)
+        except asyncio.QueueFull:
+            self.__logger.warning("File finishing queue is full, current job will finish first")
         if self.__check_files_process:
             self.__check_files_process.kill()
 
@@ -97,6 +113,18 @@ class HostingFileHandler:
         self.__event_manage_backup_files.set()
         raise StoppingException()
 
+    async def __file_finishing_thread(self):
+        while self.__context.stopping is False:
+            job = await self.__file_finishing_queue.get()
+            if job is None or self.__context.stopping:
+                return  # Stopping
+            try:
+                await finish_file(job)
+            except Exception:
+                self.__logger.exception("Unhandled exception in __file_finishing_thread")
+            finally:
+                job.done_event.set()
+
     async def maintenance(self):
         self.__logger.info("Starting maintenance")
         try:
@@ -104,6 +132,7 @@ class HostingFileHandler:
                 group.create_task(self.__manage_file_list_thread())
                 group.create_task(self.__manage_staging_thread())
                 group.create_task(self.__manage_backup_files_thread())
+                group.create_task(self.__file_finishing_thread())
                 group.create_task(self.__stop_thread())
                 # group.create_task(self.__emit_status_thread()),
 
@@ -418,33 +447,28 @@ class HostingFileHandler:
             return web.HTTPNotFound()  # Staging folder does not exist/is gone
 
         path_workfile = pathlib.Path(path_staging, fuuid + '.work')
-        verifier = VerificateurHachage(fuuid)
+
+        done_event = asyncio.Event()
+        finish_job = FileFinishingJob(fuuid, path_fuuid_staging, path_workfile, done_event)
+        await self.__file_finishing_queue.put(finish_job)
 
         try:
-            with open(path_workfile, 'wb') as output:
-                await asyncio.to_thread(rebuild_file, path_fuuid_staging, output, verifier)
-                # for part in file_part_reader(path_fuuid_staging):
-                #     with open(part, 'rb') as input_file:
-                #         while True:
-                #             # chunk = await asyncio.to_thread(input_file.read, CHUNK_SIZE)
-                #             chunk = input_file.read(CHUNK_SIZE)
-                #             if len(chunk) == 0:
-                #                 break
-                #             # await asyncio.to_thread(output.write, chunk)
-                #             output.write(chunk)
-                #             verifier.update(chunk)
-
-            verifier.verify()  # Raises exception on error
+            try:
+                await asyncio.wait_for(done_event.wait(), 600)  # Wait for 10 minutes max
+            except asyncio.TimeoutError:
+                self.__logger.warning("Timed out waiting for file %s to finish", fuuid)
+                return web.HTTPFailedDependency()  # Signal re-upload required, connection should already have been closed.
 
             # File is good
-            path_workfile.rename(path_fuuid)
+            if finish_job.file_ok:
+                path_workfile.rename(path_fuuid)
 
-            # Cleanup staging
-            await asyncio.to_thread(rmtree, path_fuuid_staging, ignore_errors=True)
-        except ErreurHachage:
-            # Cleanup fuuid staging, files are bad
-            await asyncio.to_thread(rmtree, path_fuuid_staging, ignore_errors=True)
-            return web.HTTPFailedDependency()  # Staged content bad, has to be re-uploaded.
+                # Cleanup staging
+                await asyncio.to_thread(rmtree, path_fuuid_staging, ignore_errors=True)
+            else:
+                # Cleanup fuuid staging, files are bad
+                await asyncio.to_thread(rmtree, path_fuuid_staging, ignore_errors=True)
+                return web.HTTPFailedDependency()  # Staged content bad, has to be re-uploaded.
         finally:
             path_workfile.unlink(missing_ok=True)
 
@@ -961,3 +985,22 @@ def find_current_upload_position(path_staging: pathlib.Path):
                 stat_value = part.stat()
                 max_position = position + stat_value.st_size
     return max_position
+
+
+async def finish_file(job: FileFinishingJob):
+    fuuid = job.fuuid
+    path_workfile = job.work_file
+    path_fuuid_staging = job.staging
+    verifier = VerificateurHachage(fuuid)
+
+    with open(path_workfile, 'wb') as output:
+        await asyncio.to_thread(rebuild_file, path_fuuid_staging, output, verifier)
+
+    try:
+        # verifier.update(b"012345")  # Corrupt
+        verifier.verify()  # Raises exception on error
+        job.file_ok = True
+    except ErreurHachage:
+        job.file_ok = False
+
+    job.done_event.set()
