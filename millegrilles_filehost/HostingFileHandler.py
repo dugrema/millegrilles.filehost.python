@@ -319,6 +319,7 @@ class HostingFileHandler:
             return web.json_response(usage)
 
     async def __manage_file_list_thread(self):
+        await self.__context.wait(90)  # Wait 90 to start managing file list on start
         while self.__context.stopping is False:
             self.__event_manage_file_lists.clear()  # Reset flag for next run
             files_path = pathlib.Path(self.__context.configuration.dir_files)
