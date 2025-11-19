@@ -321,7 +321,6 @@ class HostingFileHandler:
     async def __manage_file_list_thread(self):
         await self.__context.wait(90)  # Wait 90 to start managing file list on start
         while self.__context.stopping is False:
-            self.__event_manage_file_lists.clear()  # Reset flag for next run
             files_path = pathlib.Path(self.__context.configuration.dir_files)
             self.__logger.info("Start managing file list")
             await _manage_file_list(files_path, self.__semaphore_usage_update, self.emit_event)
@@ -329,6 +328,7 @@ class HostingFileHandler:
             self.__event_manage_file_lists.clear()  # Reset flag for next run
             try:
                 await asyncio.wait_for(self.__event_manage_file_lists.wait(), CONST_REFRESH_LISTS_INTERVAl)
+                self.__logger.info("__manage_file_list_thread Triggered")
             except asyncio.TimeoutError:
                 pass
             await self.__context.wait(30)  # wait 30 seconds to start to let the file system changes settle
@@ -674,6 +674,8 @@ async def _manage_file_list(files_path: pathlib.Path, semaphore: asyncio.Semapho
 
         await asyncio.sleep(5)  # Throttling
 
+        LOGGER.info(f"_manage_file_list Starting IDMG {idmg}")
+
         path_usage = pathlib.Path(idmg_path, 'usage.json')
         path_filelist = pathlib.Path(idmg_path, 'list.txt.gz')
         path_filelist_work = pathlib.Path(idmg_path, 'list.txt.gz.work')
@@ -706,6 +708,8 @@ async def _manage_file_list(files_path: pathlib.Path, semaphore: asyncio.Semapho
         path_filelist_incremental = pathlib.Path(idmg_path, 'list_incremental.txt')
         # await asyncio.to_thread(path_filelist_incremental.unlink, missing_ok=True)
         await asyncio.to_thread(path_filelist_incremental.unlink, missing_ok=True)
+
+        LOGGER.info(f"_manage_file_list Done IDMG {idmg}")
 
 
 def file_part_reader(path_parts: pathlib.Path):
