@@ -683,14 +683,13 @@ async def _manage_file_list(files_path: pathlib.Path, semaphore: asyncio.Semapho
                 try:
                     filename: str = bucket_info['name']
                     filename_bytes = filename.encode('utf-8') + b'\n'
-                    # await asyncio.to_thread(output.write, filename_bytes)
-                    output.write(filename_bytes)
+                    await asyncio.to_thread(output.write, filename_bytes)
                 except KeyError:
                     # Quota information
                     async with semaphore:
                         with open(path_usage, 'wt') as output_usage:
                             # await asyncio.to_thread(json.dump, bucket_info, output_usage)
-                            json.dump(bucket_info, output_usage)
+                            await asyncio.to_thread(json.dump, bucket_info, output_usage)
                         try:
                             await emit_event(idmg, 'usage', bucket_info)
                         except Exception as e:
@@ -698,15 +697,15 @@ async def _manage_file_list(files_path: pathlib.Path, semaphore: asyncio.Semapho
 
         # Delete old file
         # await asyncio.to_thread(path_filelist.unlink, missing_ok=True)
-        path_filelist.unlink(missing_ok=True)
+        await asyncio.to_thread(path_filelist.unlink, missing_ok=True)
         # Replace by new file
         # await asyncio.to_thread(path_filelist_work.rename, path_filelist)
-        path_filelist_work.rename(path_filelist)
+        await asyncio.to_thread(path_filelist_work.rename, path_filelist)
 
         # Remove incremental list
         path_filelist_incremental = pathlib.Path(idmg_path, 'list_incremental.txt')
         # await asyncio.to_thread(path_filelist_incremental.unlink, missing_ok=True)
-        path_filelist_incremental.unlink(missing_ok=True)
+        await asyncio.to_thread(path_filelist_incremental.unlink, missing_ok=True)
 
 
 def file_part_reader(path_parts: pathlib.Path):
