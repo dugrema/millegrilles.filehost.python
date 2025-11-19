@@ -672,11 +672,14 @@ async def _manage_file_list(files_path: pathlib.Path, semaphore: asyncio.Semapho
         if idmg_path.is_dir() is False:
             continue  # Skip
 
+        await asyncio.sleep(5)  # Throttling
+
         path_usage = pathlib.Path(idmg_path, 'usage.json')
         path_filelist = pathlib.Path(idmg_path, 'list.txt.gz')
         path_filelist_work = pathlib.Path(idmg_path, 'list.txt.gz.work')
         with gzip.open(path_filelist_work, 'wb') as output:
             async for bucket_info in iter_bucket_files(idmg_path):
+                await asyncio.sleep(0.001)  # Throttling
                 try:
                     filename: str = bucket_info['name']
                     filename_bytes = filename.encode('utf-8') + b'\n'
