@@ -325,11 +325,12 @@ class HostingFileHandler:
             self.__logger.info("Start managing file list")
             await _manage_file_list(files_path, self.__semaphore_usage_update, self.emit_event)
             self.__logger.info("Done managing file list")
+            self.__event_manage_file_lists.clear()  # Reset flag for next run
             try:
                 await asyncio.wait_for(self.__event_manage_file_lists.wait(), CONST_REFRESH_LISTS_INTERVAl)
-                await self.__context.wait(30)  # wait 30 seconds to start to let the file system changes settle
             except asyncio.TimeoutError:
                 pass
+            await self.__context.wait(30)  # wait 30 seconds to start to let the file system changes settle
 
     async def __manage_backup_files_thread(self):
         while self.__context.stopping is False:
