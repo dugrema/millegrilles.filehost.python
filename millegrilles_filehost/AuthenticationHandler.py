@@ -38,7 +38,8 @@ class AuthenticationHandler:
             await self.__context.wait(30)
 
     async def maintenance(self):
-        self.__logger.debug("Maintenance cycle")
+        # self.__logger.debug("Maintenance cycle")
+        pass
 
     async def authenticate(self, request: web.Request) -> web.Response :
         auth_message = await request.json()
