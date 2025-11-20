@@ -42,6 +42,7 @@ class FileHostContext:
         self.__ssl_context = _load_ssl_context(configuration)
         self.__sync_event = threading.Event()
         self.__semaphore_usage_update = asyncio.BoundedSemaphore(value=1)
+        self.__semaphore_disk_maintenance = asyncio.BoundedSemaphore(value=1)
 
         # Generate secret/private keys for cookies and JWTs
         self.__ed25519_private_key = Ed25519PrivateKey.generate()
@@ -123,6 +124,10 @@ class FileHostContext:
     @property
     def semaphore_usage_update(self):
         return self.__semaphore_usage_update
+
+    @property
+    def semaphore_disk_maintenance(self):
+        return self.__semaphore_disk_maintenance
 
 
 def _load_ssl_context(configuration: FileHostConfiguration) -> ssl.SSLContext:

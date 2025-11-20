@@ -322,9 +322,12 @@ class HostingFileHandler:
         await self.__context.wait(90)  # Wait 90 to start managing file list on start
         while self.__context.stopping is False:
             files_path = pathlib.Path(self.__context.configuration.dir_files)
-            self.__logger.info("Start managing file list")
-            await _manage_file_list(files_path, self.__semaphore_usage_update, self.emit_event)
-            self.__logger.info("Done managing file list")
+            async with self.__context.semaphore_disk_maintenance:
+                if self.__context.stopping is True:
+                    return  # Semaphore released during shutdown
+                self.__logger.info("Start managing file list")
+                await _manage_file_list(files_path, self.__semaphore_usage_update, self.emit_event)
+                self.__logger.info("Done managing file list")
             self.__event_manage_file_lists.clear()  # Reset flag for next run
             try:
                 await asyncio.wait_for(self.__event_manage_file_lists.wait(), CONST_REFRESH_LISTS_INTERVAl)
@@ -335,14 +338,17 @@ class HostingFileHandler:
 
     async def __manage_backup_files_thread(self):
         while self.__context.stopping is False:
-            self.__event_manage_backup_files.clear()  # Reset flag for next run
-            files_path = pathlib.Path(self.__context.configuration.dir_files)
-            try:
-                self.__logger.debug("maintain_backup_versions START")
-                await asyncio.to_thread(maintain_backup_versions, files_path)
-                self.__logger.debug("maintain_backup_versions DONE")
-            except Exception:
-                self.__logger.exception("Error managing backup files")
+            async with self.__context.semaphore_disk_maintenance:
+                if self.__context.stopping is True:
+                    return  # Semaphore released during shutdown
+                self.__event_manage_backup_files.clear()  # Reset flag for next run
+                files_path = pathlib.Path(self.__context.configuration.dir_files)
+                try:
+                    self.__logger.debug("maintain_backup_versions START")
+                    await asyncio.to_thread(maintain_backup_versions, files_path)
+                    self.__logger.debug("maintain_backup_versions DONE")
+                except Exception:
+                    self.__logger.exception("Error managing backup files")
             try:
                 await asyncio.wait_for(self.__event_manage_backup_files.wait(), CONST_REFRESH_LISTS_INTERVAl)
                 await self.__context.wait(30)  # wait 30 seconds to start to let the file system changes settle
@@ -352,10 +358,13 @@ class HostingFileHandler:
     async def __manage_staging_thread(self):
         while self.__context.stopping is False:
             files_path = pathlib.Path(self.__context.configuration.dir_files)
-            try:
-                await _manage_staging(files_path)
-            except:
-                self.__logger.exception("__manage_staging_thread Error cleaning up staging")
+            async with self.__context.semaphore_disk_maintenance:
+                if self.__context.stopping is True:
+                    return  # Semaphore released during shutdown
+                try:
+                    await _manage_staging(files_path)
+                except:
+                    self.__logger.exception("__manage_staging_thread Error cleaning up staging")
             await self.__context.wait(CONST_MAINTAIN_STAGING_INTERVAL)  # Every hour
 
     async def get_file_usage(self, idmg: Union[str, pathlib.Path]):
@@ -483,12 +492,15 @@ class HostingFileHandler:
             await self.__event_start_filecheck.wait()
             if self.__context.stopping:
                 return  # Stopping
-            try:
-                await self.check_files()
-            except asyncio.CancelledError:
-                return  # Stopping
-            except Exception:
-                self.__logger.exception("Error handling file checks")
+            async with self.__context.semaphore_disk_maintenance:
+                if self.__context.stopping is True:
+                    return  # Semaphore released during shutdown
+                try:
+                    await self.check_files()
+                except asyncio.CancelledError:
+                    return  # Stopping
+                except Exception:
+                    self.__logger.exception("Error handling file checks")
 
             self.__event_start_filecheck.clear()  # Ensure we wait for next trigger
 
