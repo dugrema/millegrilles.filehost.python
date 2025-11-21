@@ -258,14 +258,6 @@ class HostingFileHandler:
             await receive_fuuid(request, path_workfile, fuuid)
             await asyncio.to_thread(path_workfile.rename, path_fuuid)
             await add_file_incremental_list(path_filelist_incremental, fuuid)
-
-            # # Add file to incremental list.
-            # if path_filelist_incremental.exists():
-            #     flag = 'at'  # Append
-            # else:
-            #     flag = 'wt'  # Create new/overwrite
-            # with open(path_filelist_incremental, flag) as output:
-            #     await asyncio.to_thread(output.write, fuuid + '\n')
         finally:
             # Ensure workfile is deleted
             await asyncio.to_thread(path_workfile.unlink, missing_ok=True)
@@ -275,7 +267,7 @@ class HostingFileHandler:
             usage = await self.update_file_usage(path_fuuid)
             await self.emit_event(idmg, 'newFuuid', {'file': fuuid, 'usage': usage})
         except:
-            self.__logger.exception("Error udpating file usage information")
+            self.__logger.exception("Error updating file usage information")
 
         return web.HTTPOk()
 
