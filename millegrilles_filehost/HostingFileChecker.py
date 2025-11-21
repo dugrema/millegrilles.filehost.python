@@ -57,6 +57,16 @@ def check_files_idmg(configuration: FileHostConfiguration, idmg_path: pathlib.Pa
     days_check = configuration.continual_check_days
     ts_days_check = (check_start - datetime.timedelta(days=days_check)).timestamp()
 
+    # Use list of completed buckets, allows skipping
+    buckets_completed_path = pathlib.Path(idmg_path, 'buckets_completed.txt')
+    buckets_completed = set()
+    try:
+        with open(buckets_completed_path, 'rt') as fp:
+            for line in fp:
+                buckets_completed.add(line.strip())
+    except FileNotFoundError:
+        pass
+
     buckets_path = pathlib.Path(idmg_path, 'buckets')
     if buckets_path.exists() is False:
         return True  # No files yet
@@ -70,9 +80,13 @@ def check_files_idmg(configuration: FileHostConfiguration, idmg_path: pathlib.Pa
     complete: Optional[bool] = None
 
     for bucket in buckets_path.iterdir():
+
+        if bucket.name in buckets_completed:
+            continue    # Bucket already completely processed
+
         file: pathlib.Path
         for file in bucket.iterdir():
-            if file.is_file() is False:
+            if not file.is_file():
                 continue  # Only checking files
 
             fuuid = file.name
@@ -116,6 +130,12 @@ def check_files_idmg(configuration: FileHostConfiguration, idmg_path: pathlib.Pa
         # Outer loop
         if complete is not None:
             break  # Batch limit reached
+
+        # Keep track of completed buckets
+        buckets_completed.add(bucket.name)
+        with open(buckets_completed_path, 'at') as fp:
+            fp.write(bucket.name)
+            fp.write('\n')
     else:
         complete = True
 
@@ -124,6 +144,9 @@ def check_files_idmg(configuration: FileHostConfiguration, idmg_path: pathlib.Pa
     if files_checked > 0:
         LOGGER.info(f"File checking on IDMG:%s has completed a batch in %s on %s files (%s bytes)",
                          idmg, check_duration, files_checked, bytes_checked)
+
+    if complete:
+        buckets_completed_path.unlink(missing_ok=True)  # Remove buckets completed file
 
     if complete is None:
         return False
@@ -158,7 +181,7 @@ def verify_hosted_file(file_path: pathlib.Path, throttle: Optional[int]) -> bool
 
     try:
         verifier.verify()
-        file_path.touch()  # Modify file time, avoids re-checking in same batch
+        file_path.touch(exist_ok=True)  # Modify file time, avoids re-checking in same batch
         return True
     except ErreurHachage:
         return False

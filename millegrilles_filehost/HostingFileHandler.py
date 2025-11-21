@@ -520,8 +520,20 @@ class HostingFileHandler:
 
             try:
                 not_after_date = datetime.datetime.fromtimestamp(filechecks_config['not_after_date'])
+                self.__logger.info(f"Starting file check batch for IDMG:{idmg_path.name} for files older than {not_after_date}")
             except (KeyError, ValueError, TypeError):
                 not_after_date = datetime.datetime.now()
+
+                # Check if we skip entirely
+                try:
+                    last_batch_date = datetime.datetime.fromtimestamp(filechecks_config['last_batch_date'])
+                    resume_date = last_batch_date + datetime.timedelta(days=1)
+                    if not_after_date < resume_date:
+                        self.__logger.info(f"Skipping file check batch for IDMG:{idmg_path.name}, completed less than a day ago")
+                        continue  # Next IDMG
+                except (KeyError, ValueError, TypeError):
+                    pass  # No value
+
                 # Save new start date for this batch
                 filechecks_config['not_after_date'] = math.floor(not_after_date.timestamp())
                 with open(filechecks_config_path, 'wt') as fp:
@@ -543,7 +555,10 @@ class HostingFileHandler:
                 # Reset not_after_date. A new date will be put in next time.
                 filechecks_config['not_after_date'] = None
                 days_check = self.__context.configuration.continual_check_days
-                self.__logger.debug(f"File check on IDMG:{idmg_path.name} has completed all files (modified more than {days_check} days ago), resetting for next check")
+                self.__logger.info(f"File check on IDMG:{idmg_path.name} has completed all files (modified more than {days_check} days ago), resetting for next check")
+            else:
+                self.__logger.info(f"File check batch on IDMG:{idmg_path.name} done")
+
             filechecks_config['last_batch_date'] = math.floor(datetime.datetime.now().timestamp())
 
             with open(filechecks_config_path, 'wt') as fp:
@@ -685,27 +700,27 @@ async def _manage_file_list(files_path: pathlib.Path, semaphore: asyncio.Semapho
         path_filelist = pathlib.Path(idmg_path, 'list.txt.gz')
         path_filelist_work = pathlib.Path(idmg_path, 'list.txt.gz.work')
         with open(path_filelist_work, mode='wb') as raw_output:
-            gz_output = gzip.GzipFile(fileobj=raw_output, mode='wb', compresslevel=9)
-            output = BufferedWriter(gz_output, buffer_size=2 * 1024 * 1024)  # 2MB
-            async for bucket_info in iter_bucket_files(idmg_path):
-                await asyncio.sleep(0.001)  # Throttling
-                try:
-                    filename: str = bucket_info['name']
-                    filename_bytes = filename.encode('utf-8') + b'\n'
-                    await asyncio.to_thread(output.write, filename_bytes)
-                except KeyError:
-                    # Quota information
-                    async with semaphore:
-                        with open(path_usage, 'wt') as output_usage:
-                            # await asyncio.to_thread(json.dump, bucket_info, output_usage)
-                            await asyncio.to_thread(json.dump, bucket_info, output_usage)
-                        try:
-                            await emit_event(idmg, 'usage', bucket_info)
-                        except Exception as e:
-                            LOGGER.warning("Error emitting usage event: %s" % e)
+            with gzip.GzipFile(fileobj=raw_output, mode='wb', compresslevel=9) as gz_output:
+                output = BufferedWriter(gz_output, buffer_size=2 * 1024 * 1024)  # 2MB
+                async for bucket_info in iter_bucket_files(idmg_path):
+                    await asyncio.sleep(0.001)  # Throttling
+                    try:
+                        filename: str = bucket_info['name']
+                        filename_bytes = filename.encode('utf-8') + b'\n'
+                        await asyncio.to_thread(output.write, filename_bytes)
+                    except KeyError:
+                        # Quota information
+                        async with semaphore:
+                            with open(path_usage, 'wt') as output_usage:
+                                # await asyncio.to_thread(json.dump, bucket_info, output_usage)
+                                await asyncio.to_thread(json.dump, bucket_info, output_usage)
+                            try:
+                                await emit_event(idmg, 'usage', bucket_info)
+                            except Exception as e:
+                                LOGGER.warning("Error emitting usage event: %s" % e)
 
-            # Finish sending all from buffer
-            output.flush()
+                # Finish sending all from buffer
+                output.flush()
 
         # Delete old file
         # await asyncio.to_thread(path_filelist.unlink, missing_ok=True)
