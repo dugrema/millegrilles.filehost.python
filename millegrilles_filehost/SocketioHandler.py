@@ -244,8 +244,10 @@ class SocketioHandler(StopListener):
         try:
             path_fuuid.unlink()
             self.__logger.info(f"Deleted file {path_fuuid}")
-            # File system changed, rebuild the file lists
-            self.__hosting_file_handler.trigger_event_manage_file_lists()
+
+            # DEBUG - not triggering rebuild, very long operation (> 30 minutes)
+            # # File system changed, rebuild the file lists
+            # self.__hosting_file_handler.trigger_event_manage_file_lists()
         except FileNotFoundError:
             return {'ok': True, 'code': 404}
 

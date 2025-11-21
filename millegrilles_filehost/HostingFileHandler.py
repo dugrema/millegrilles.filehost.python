@@ -11,6 +11,7 @@ import re
 
 from asyncio import TaskGroup
 from json import JSONDecodeError
+from io import BufferedWriter
 
 from aiohttp import web
 from typing import Optional, Union
@@ -319,7 +320,7 @@ class HostingFileHandler:
             return web.json_response(usage)
 
     async def __manage_file_list_thread(self):
-        await self.__context.wait(90)  # Wait 90 to start managing file list on start
+        await self.__context.wait(45)  # Wait to start managing file list on start
         while self.__context.stopping is False:
             files_path = pathlib.Path(self.__context.configuration.dir_files)
             async with self.__context.semaphore_disk_maintenance:
@@ -691,7 +692,9 @@ async def _manage_file_list(files_path: pathlib.Path, semaphore: asyncio.Semapho
         path_usage = pathlib.Path(idmg_path, 'usage.json')
         path_filelist = pathlib.Path(idmg_path, 'list.txt.gz')
         path_filelist_work = pathlib.Path(idmg_path, 'list.txt.gz.work')
-        with gzip.open(path_filelist_work, 'wb') as output:
+        with open(path_filelist_work, mode='wb') as raw_output:
+            gz_output = gzip.GzipFile(fileobj=raw_output, mode='wb', compresslevel=9)
+            output = BufferedWriter(gz_output, buffer_size=2 * 1024 * 1024)  # 2MB
             async for bucket_info in iter_bucket_files(idmg_path):
                 await asyncio.sleep(0.001)  # Throttling
                 try:
@@ -708,6 +711,9 @@ async def _manage_file_list(files_path: pathlib.Path, semaphore: asyncio.Semapho
                             await emit_event(idmg, 'usage', bucket_info)
                         except Exception as e:
                             LOGGER.warning("Error emitting usage event: %s" % e)
+
+            # Finish sending all from buffer
+            output.flush()
 
         # Delete old file
         # await asyncio.to_thread(path_filelist.unlink, missing_ok=True)
