@@ -8,6 +8,7 @@ import multiprocessing.queues
 import pathlib
 import gzip
 import re
+import subprocess
 
 from asyncio import TaskGroup
 from json import JSONDecodeError
@@ -312,7 +313,7 @@ class HostingFileHandler:
             return web.json_response(usage)
 
     async def __manage_file_list_thread(self):
-        await self.__context.wait(45)  # Wait to start managing file list on start
+        await self.__context.wait(20)  # Wait to start managing file list on start
         while self.__context.stopping is False:
             files_path = pathlib.Path(self.__context.configuration.dir_files)
             async with self.__context.semaphore_disk_maintenance:
@@ -699,43 +700,116 @@ async def _manage_file_list(files_path: pathlib.Path, semaphore: asyncio.Semapho
         path_usage = pathlib.Path(idmg_path, 'usage.json')
         path_filelist = pathlib.Path(idmg_path, 'list.txt.gz')
         path_filelist_work = pathlib.Path(idmg_path, 'list.txt.gz.work')
+        start_time = datetime.datetime.now()
+
         with open(path_filelist_work, mode='wb') as raw_output:
             with gzip.GzipFile(fileobj=raw_output, mode='wb', compresslevel=9) as gz_output:
                 output = BufferedWriter(gz_output, buffer_size=2 * 1024 * 1024)  # 2MB
-                async for bucket_info in iter_bucket_files(idmg_path):
-                    await asyncio.sleep(0.001)  # Throttling
-                    try:
-                        filename: str = bucket_info['name']
-                        filename_bytes = filename.encode('utf-8') + b'\n'
-                        await asyncio.to_thread(output.write, filename_bytes)
-                    except KeyError:
-                        # Quota information
-                        async with semaphore:
-                            with open(path_usage, 'wt') as output_usage:
-                                # await asyncio.to_thread(json.dump, bucket_info, output_usage)
-                                await asyncio.to_thread(json.dump, bucket_info, output_usage)
-                            try:
-                                await emit_event(idmg, 'usage', bucket_info)
-                            except Exception as e:
-                                LOGGER.warning("Error emitting usage event: %s" % e)
+
+                try:
+                    quota_information = await asyncio.to_thread(bucket_listing_find_process, idmg_path, output)
+                    async with semaphore:
+                        with open(path_usage, 'wt') as output_usage:
+                            await asyncio.to_thread(json.dump, quota_information, output_usage)
+                        try:
+                            await emit_event(idmg, 'usage', quota_information)
+                        except Exception as e:
+                            LOGGER.warning("Error emitting usage event: %s" % e)
+                except (FileNotFoundError, ValueError, subprocess.CalledProcessError) as e:
+                    LOGGER.warning(f"find operation not available or failed, will iterate through folders, error: {e}")
+                    await iterate_buckets(idmg_path, path_usage, output, semaphore, emit_event)
 
                 # Finish sending all from buffer
                 output.flush()
 
         # Delete old file
-        # await asyncio.to_thread(path_filelist.unlink, missing_ok=True)
         await asyncio.to_thread(path_filelist.unlink, missing_ok=True)
         # Replace by new file
-        # await asyncio.to_thread(path_filelist_work.rename, path_filelist)
         await asyncio.to_thread(path_filelist_work.rename, path_filelist)
 
         # Remove incremental list
         path_filelist_incremental = pathlib.Path(idmg_path, 'list_incremental.txt')
-        # await asyncio.to_thread(path_filelist_incremental.unlink, missing_ok=True)
         await asyncio.to_thread(path_filelist_incremental.unlink, missing_ok=True)
 
-        LOGGER.info(f"_manage_file_list Done IDMG {idmg}")
+        LOGGER.info(f"_manage_file_list Done IDMG {idmg}, duration = {datetime.datetime.now() - start_time}")
 
+
+def bucket_listing_find_process(idmg_path: pathlib.Path, output: BufferedWriter):
+    """
+    Starts sub-process with the os find utility to produce a full listing of files in the bucket. Much more efficient
+    than iterating through the directories but only works on Linux.
+
+    :param idmg_path:
+    :param output:
+    :return:
+    """
+    idmg = idmg_path.name
+
+    current_date = datetime.datetime.now()
+    fuuid_count = 0
+    fuuid_size = 0
+
+    path_buckets = pathlib.Path(idmg_path, 'buckets')
+    full_path = path_buckets.absolute()
+    cmd = ["find", full_path, "-type", "f", "-printf", "%T@\t%s\t%p\n"]
+
+    def set_priority():
+        import os
+        os.nice(10)
+
+    # Use subprocess to run find
+    with subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, preexec_fn=set_priority) as proc:
+        LOGGER.info(f"Using find to traverse buckets of {idmg}")
+        for line in proc.stdout:
+            mtime_str, file_size_str, filename = line.split('\t')
+            file_path = pathlib.Path(filename.strip())
+            filename = file_path.name  # Keep file name only
+            filename_bytes = filename.encode('utf-8') + b'\n'
+
+            try:
+                file_size = int(file_size_str)
+            except ValueError:
+                file_size = 0
+
+            output.write( filename_bytes)
+
+            fuuid_count += 1
+            fuuid_size += file_size
+
+        proc.stdout.close()
+        err_output, _ = proc.communicate()  # read any remaining stderr
+        if proc.returncode != 0:
+            raise ValueError(f"Find failed ({proc.returncode}):")
+
+    # Quota information
+    quota_information = {
+        'date': math.floor(current_date.timestamp()),
+        'fuuid': {'count': fuuid_count, 'size': fuuid_size}
+    }
+
+    return quota_information
+
+
+async def iterate_buckets(idmg_path: pathlib.Path, path_usage: pathlib.Path, output: BufferedWriter, semaphore: asyncio.Semaphore, emit_event):
+    idmg = idmg_path.name
+    LOGGER.debug(f"Iterating through all buckets of {idmg}")
+
+    async for bucket_info in iter_bucket_files(idmg_path):
+        await asyncio.sleep(0.001)  # Throttling
+        try:
+            filename: str = bucket_info['name']
+            filename_bytes = filename.encode('utf-8') + b'\n'
+            await asyncio.to_thread(output.write, filename_bytes)
+        except KeyError:
+            # Quota information
+            async with semaphore:
+                with open(path_usage, 'wt') as output_usage:
+                    # await asyncio.to_thread(json.dump, bucket_info, output_usage)
+                    await asyncio.to_thread(json.dump, bucket_info, output_usage)
+                try:
+                    await emit_event(idmg, 'usage', bucket_info)
+                except Exception as e:
+                    LOGGER.warning("Error emitting usage event: %s" % e)
 
 def file_part_reader(path_parts: pathlib.Path):
     parts = list()
