@@ -1,5 +1,6 @@
 import time
 import datetime
+import gzip
 import logging
 import multiprocessing
 import pathlib
@@ -45,28 +46,6 @@ def check_files_idmg(configuration: FileHostConfiguration, idmg_path: pathlib.Pa
     files_checked = 0
     bytes_checked = 0
 
-    # CONST_FILE_LIMIT = 1000
-    # CONST_BYTES_LIMIT = 1_000_000_000
-    file_count_limit = configuration.check_batch_len
-    file_bytes_limit = configuration.check_batch_size
-    check_throttle_ms = configuration.check_throttle_ms
-
-    idmg = idmg_path.name
-    check_start = datetime.datetime.now()
-    not_after_date_ts = not_after_date.timestamp()
-    days_check = configuration.continual_check_days
-    ts_days_check = (check_start - datetime.timedelta(days=days_check)).timestamp()
-
-    # Use list of completed buckets, allows skipping
-    buckets_completed_path = pathlib.Path(idmg_path, 'buckets_completed.txt')
-    buckets_completed = set()
-    try:
-        with open(buckets_completed_path, 'rt') as fp:
-            for line in fp:
-                buckets_completed.add(line.strip())
-    except FileNotFoundError:
-        pass
-
     buckets_path = pathlib.Path(idmg_path, 'buckets')
     if buckets_path.exists() is False:
         return True  # No files yet
@@ -74,29 +53,41 @@ def check_files_idmg(configuration: FileHostConfiguration, idmg_path: pathlib.Pa
     # Prepare the dumpster in case we find corrupted files
     dumpster_path = pathlib.Path(idmg_path, 'dumpster')
     dumpster_path.mkdir(exist_ok=True)
-
     corrupt_log_path = pathlib.Path(idmg_path, 'corrupt.txt')
 
+    file_count_limit = configuration.check_batch_len
+    file_bytes_limit = configuration.check_batch_size
+    check_throttle_ms = configuration.check_throttle_ms
     complete: Optional[bool] = None
 
-    for bucket in buckets_path.iterdir():
+    idmg = idmg_path.name
+    check_start = datetime.datetime.now()
+    days_check = configuration.continual_check_days
 
-        if bucket.name in buckets_completed:
-            continue    # Bucket already completely processed
+    path_filecheck = pathlib.Path(idmg_path, 'check_listing.txt.gz')
+    path_filecheck_position = pathlib.Path(idmg_path, 'check_position.txt')
 
-        file: pathlib.Path
-        for file in bucket.iterdir():
-            if not file.is_file():
-                continue  # Only checking files
+    try:
+        with open(path_filecheck_position, 'rt') as fp:
+            initial_file_position = int(fp.read())
+    except (FileNotFoundError, ValueError):
+        initial_file_position = 0
 
+    file_position = 0
+
+    with gzip.open(path_filecheck, 'rt') as fp_filecheck:
+        complete: Optional[bool] = None
+        for file_path_str in fp_filecheck:
+            file_path_str = file_path_str.strip()
+            # Skip files up to current counter position
+            if initial_file_position > file_position:
+                file_position += 1
+                continue  # Skip file
+
+            LOGGER.debug(f"Check file {file_path_str}")
+            file = pathlib.Path(file_path_str)
             fuuid = file.name
-
             stats = file.stat()
-            last_modified = stats.st_mtime
-            if last_modified > not_after_date_ts:
-                continue  # Skip file, is was modified since the start of this batch
-            elif last_modified > ts_days_check:
-                continue  # The file could be included in this batch but it was modified (checked) < N days ago. Skipping.
 
             file_ok = verify_hosted_file(file, check_throttle_ms)
             if file_ok is False:
@@ -110,34 +101,92 @@ def check_files_idmg(configuration: FileHostConfiguration, idmg_path: pathlib.Pa
                 with open(corrupt_log_path, 'at') as fp:
                     fp.write(file.name)
                     fp.write('\n')
-
             else:
                 LOGGER.debug(f"File IDMG:{idmg} FUUID:{fuuid} is OK")
 
+            file_position += 1
             files_checked += 1
             bytes_checked += stats.st_size
 
-            if files_checked >= file_count_limit:
+            if files_checked >= file_count_limit or bytes_checked >= file_bytes_limit:
                 complete = False
                 break  # Batch limit reached
-            elif bytes_checked >= file_bytes_limit:
-                complete = False
+        else:
+            complete = True
 
-            # Inner loop
-            if complete is not None:
-                break  # Batch limit reached
+    # Save current position in list
+    with open(path_filecheck_position, 'wt') as fp:
+        fp.write(str(file_position))
 
-        # Outer loop
-        if complete is not None:
-            break  # Batch limit reached
-
-        # Keep track of completed buckets
-        buckets_completed.add(bucket.name)
-        with open(buckets_completed_path, 'at') as fp:
-            fp.write(bucket.name)
-            fp.write('\n')
-    else:
-        complete = True
+    # # Use list of completed buckets, allows skipping
+    # buckets_completed_path = pathlib.Path(idmg_path, 'buckets_completed.txt')
+    # buckets_completed = set()
+    # try:
+    #     with open(buckets_completed_path, 'rt') as fp:
+    #         for line in fp:
+    #             buckets_completed.add(line.strip())
+    # except FileNotFoundError:
+    #     pass
+    #
+    # for bucket in buckets_path.iterdir():
+    #
+    #     if bucket.name in buckets_completed:
+    #         continue    # Bucket already completely processed
+    #
+    #     file: pathlib.Path
+    #     for file in bucket.iterdir():
+    #         if not file.is_file():
+    #             continue  # Only checking files
+    #
+    #         fuuid = file.name
+    #
+    #         stats = file.stat()
+    #         last_modified = stats.st_mtime
+    #         if last_modified > not_after_date_ts:
+    #             continue  # Skip file, is was modified since the start of this batch
+    #         elif last_modified > ts_days_check:
+    #             continue  # The file could be included in this batch but it was modified (checked) < N days ago. Skipping.
+    #
+    #         file_ok = verify_hosted_file(file, check_throttle_ms)
+    #         if file_ok is False:
+    #             LOGGER.warning(f"File IDMG:{idmg} FUUID:{fuuid} content is corrupt, moving file to dumpster")
+    #
+    #             # Move the corrupt file to the dumpster
+    #             path_dumped_file = pathlib.Path(dumpster_path, file.name)
+    #             file.rename(path_dumped_file)
+    #
+    #             # Add an entry to corrupt.txt
+    #             with open(corrupt_log_path, 'at') as fp:
+    #                 fp.write(file.name)
+    #                 fp.write('\n')
+    #
+    #         else:
+    #             LOGGER.debug(f"File IDMG:{idmg} FUUID:{fuuid} is OK")
+    #
+    #         files_checked += 1
+    #         bytes_checked += stats.st_size
+    #
+    #         if files_checked >= file_count_limit:
+    #             complete = False
+    #             break  # Batch limit reached
+    #         elif bytes_checked >= file_bytes_limit:
+    #             complete = False
+    #
+    #         # Inner loop
+    #         if complete is not None:
+    #             break  # Batch limit reached
+    #
+    #     # Outer loop
+    #     if complete is not None:
+    #         break  # Batch limit reached
+    #
+    #     # Keep track of completed buckets
+    #     buckets_completed.add(bucket.name)
+    #     with open(buckets_completed_path, 'at') as fp:
+    #         fp.write(bucket.name)
+    #         fp.write('\n')
+    # else:
+    #     complete = True
 
     check_end = datetime.datetime.now()
     check_duration = check_end - check_start
@@ -145,14 +194,13 @@ def check_files_idmg(configuration: FileHostConfiguration, idmg_path: pathlib.Pa
         LOGGER.info(f"File checking on IDMG:%s has completed a batch in %s on %s files (%s bytes)",
                          idmg, check_duration, files_checked, bytes_checked)
 
-    if complete:
-        buckets_completed_path.unlink(missing_ok=True)  # Remove buckets completed file
+    # if complete:
+    #     buckets_completed_path.unlink(missing_ok=True)  # Remove buckets completed file
 
     if complete is None:
         return False
 
     return complete
-
 
 
 def verify_hosted_file(file_path: pathlib.Path, throttle: Optional[int]) -> bool:

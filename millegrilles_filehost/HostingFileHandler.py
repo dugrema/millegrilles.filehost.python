@@ -12,13 +12,14 @@ import subprocess
 
 from asyncio import TaskGroup
 from json import JSONDecodeError
-from io import BufferedWriter
+from io import BufferedWriter, IOBase
 
 from aiohttp import web
 from typing import Optional, Union
 from shutil import rmtree
 
 from millegrilles_filehost.BackupV2 import maintain_backup_versions
+from millegrilles_filehost.Configuration import FileHostConfiguration
 from millegrilles_filehost.HostingFileChecker import check_files_process
 from millegrilles_messages.messages import Constantes
 from millegrilles_filehost.Context import FileHostContext, StoppingException
@@ -320,7 +321,7 @@ class HostingFileHandler:
                 if self.__context.stopping is True:
                     return  # Semaphore released during shutdown
                 self.__logger.info("Start managing file list")
-                await _manage_file_list(files_path, self.__semaphore_usage_update, self.emit_event)
+                await _manage_file_list(self.__context.configuration, files_path, self.__semaphore_usage_update, self.emit_event)
                 self.__logger.info("Done managing file list")
             self.__event_manage_file_lists.clear()  # Reset flag for next run
             try:
@@ -685,7 +686,7 @@ async def iter_bucket_files(path_idmg: pathlib.Path):
     yield quota_information
 
 
-async def _manage_file_list(files_path: pathlib.Path, semaphore: asyncio.Semaphore, emit_event):
+async def _manage_file_list(configuration: FileHostConfiguration, files_path: pathlib.Path, semaphore: asyncio.Semaphore, emit_event):
     # Creates an updated list of files for each managed idmg
     # Also calculates usage (quotas)
     for idmg_path in files_path.iterdir():
@@ -700,14 +701,34 @@ async def _manage_file_list(files_path: pathlib.Path, semaphore: asyncio.Semapho
         path_usage = pathlib.Path(idmg_path, 'usage.json')
         path_filelist = pathlib.Path(idmg_path, 'list.txt.gz')
         path_filelist_work = pathlib.Path(idmg_path, 'list.txt.gz.work')
+        path_filecheck = pathlib.Path(idmg_path, 'check_listing.txt.gz')
+        path_filecheck_work = pathlib.Path(idmg_path, 'check_listing.txt.gz.work')
+        path_filecheck_position = pathlib.Path(idmg_path, 'check_position.txt')
+        path_filechecks_configuration = pathlib.Path(idmg_path, 'filechecks.json')
         start_time = datetime.datetime.now()
 
-        with open(path_filelist_work, mode='wb') as raw_output:
+        # Extract file check expiration - use global configuration param when local check has not started
+        days_check = configuration.continual_check_days
+        filecheck_expiration = start_time - datetime.timedelta(days_check)
+        try:
+            with open(path_filechecks_configuration, 'rt') as fp:
+                filecheck_configuration = json.load(fp)
+            not_after_date_int = int(filecheck_configuration['not_after_date'])
+            not_after_date = datetime.datetime.fromtimestamp(not_after_date_int)
+            if not_after_date < filecheck_expiration:
+                filecheck_expiration = not_after_date
+        except (json.JSONDecodeError, FileNotFoundError, KeyError, ValueError, TypeError):
+            pass
+
+        # Note : this operation can take a long time. The incremental list should be put in a snapshot to keep files
+        # added during processing.
+
+        with open(path_filelist_work, mode='wb') as raw_output, gzip.GzipFile(path_filecheck_work, mode='wb') as filecheck_output:
             with gzip.GzipFile(fileobj=raw_output, mode='wb', compresslevel=9) as gz_output:
                 output = BufferedWriter(gz_output, buffer_size=2 * 1024 * 1024)  # 2MB
 
                 try:
-                    quota_information = await asyncio.to_thread(bucket_listing_find_process, idmg_path, output)
+                    quota_information = await asyncio.to_thread(bucket_listing_find_process, idmg_path, output, filecheck_output, filecheck_expiration)
                     async with semaphore:
                         with open(path_usage, 'wt') as output_usage:
                             await asyncio.to_thread(json.dump, quota_information, output_usage)
@@ -724,8 +745,12 @@ async def _manage_file_list(files_path: pathlib.Path, semaphore: asyncio.Semapho
 
         # Delete old file
         await asyncio.to_thread(path_filelist.unlink, missing_ok=True)
+        await asyncio.to_thread(path_filecheck.unlink, missing_ok=True)
+        await asyncio.to_thread(path_filecheck_position.unlink, missing_ok=True)
+
         # Replace by new file
         await asyncio.to_thread(path_filelist_work.rename, path_filelist)
+        await asyncio.to_thread(path_filecheck_work.rename, path_filecheck)
 
         # Remove incremental list
         path_filelist_incremental = pathlib.Path(idmg_path, 'list_incremental.txt')
@@ -734,13 +759,14 @@ async def _manage_file_list(files_path: pathlib.Path, semaphore: asyncio.Semapho
         LOGGER.info(f"_manage_file_list Done IDMG {idmg}, duration = {datetime.datetime.now() - start_time}")
 
 
-def bucket_listing_find_process(idmg_path: pathlib.Path, output: BufferedWriter):
+def bucket_listing_find_process(idmg_path: pathlib.Path, output: BufferedWriter, filecheck_output: IOBase, filecheck_expiration: datetime.datetime):
     """
     Starts sub-process with the os find utility to produce a full listing of files in the bucket. Much more efficient
     than iterating through the directories but only works on Linux.
 
     :param idmg_path:
     :param output:
+    :filecheck_output:
     :return:
     """
     idmg = idmg_path.name
@@ -753,6 +779,8 @@ def bucket_listing_find_process(idmg_path: pathlib.Path, output: BufferedWriter)
     full_path = path_buckets.absolute()
     cmd = ["find", full_path, "-type", "f", "-printf", "%T@\t%s\t%p\n"]
 
+    filecheck_expiration_ts = filecheck_expiration.timestamp()
+
     def set_priority():
         import os
         os.nice(10)
@@ -762,7 +790,7 @@ def bucket_listing_find_process(idmg_path: pathlib.Path, output: BufferedWriter)
         LOGGER.info(f"Using find to traverse buckets of {idmg}")
         for line in proc.stdout:
             mtime_str, file_size_str, filename = line.split('\t')
-            file_path = pathlib.Path(filename.strip())
+            file_path = pathlib.Path(path_buckets, filename.strip())
             filename = file_path.name  # Keep file name only
             filename_bytes = filename.encode('utf-8') + b'\n'
 
@@ -771,10 +799,19 @@ def bucket_listing_find_process(idmg_path: pathlib.Path, output: BufferedWriter)
             except ValueError:
                 file_size = 0
 
-            output.write( filename_bytes)
+            try:
+                mtime = float(mtime_str)
+            except ValueError:
+                mtime = 0
+
+            output.write(filename_bytes)
 
             fuuid_count += 1
             fuuid_size += file_size
+
+            if mtime < filecheck_expiration_ts:
+                filecheck_output.write(str(file_path).encode('utf-8'))
+                filecheck_output.write(b'\n')
 
         proc.stdout.close()
         err_output, _ = proc.communicate()  # read any remaining stderr
