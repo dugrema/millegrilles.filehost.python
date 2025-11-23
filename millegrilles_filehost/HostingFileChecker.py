@@ -62,36 +62,41 @@ def check_files_idmg(configuration: FileHostConfiguration, idmg_path: pathlib.Pa
 
     idmg = idmg_path.name
     check_start = datetime.datetime.now()
-    days_check = configuration.continual_check_days
 
     path_filecheck = pathlib.Path(idmg_path, 'check_listing.txt.gz')
     path_filecheck_position = pathlib.Path(idmg_path, 'check_position.txt')
 
+    # Load initial file position in listing to skip all files already checked
     try:
         with open(path_filecheck_position, 'rt') as fp:
             initial_file_position = int(fp.read())
     except (FileNotFoundError, ValueError):
         initial_file_position = 0
 
-    file_position = 0
+    file_position = 0  # Position of current file in filecheck listing
 
     with gzip.open(path_filecheck, 'rt') as fp_filecheck:
         complete: Optional[bool] = None
         for file_path_str in fp_filecheck:
-            file_path_str = file_path_str.strip()
             # Skip files up to current counter position
             if initial_file_position > file_position:
                 file_position += 1
                 continue  # Skip file
 
-            LOGGER.debug(f"Check file {file_path_str}")
+            file_path_str = file_path_str.strip()
+            LOGGER.debug(f"check_files_idmg Check file {file_path_str}")
             file = pathlib.Path(file_path_str)
             fuuid = file.name
-            stats = file.stat()
+            try:
+                stats = file.stat()
+            except FileNotFoundError:
+                file_position += 1
+                LOGGER.info(f"check_files_idmg File IDMG:{idmg} FUUID:{fuuid} is gone (deleted?)")
+                continue
 
             file_ok = verify_hosted_file(file, check_throttle_ms)
-            if file_ok is False:
-                LOGGER.warning(f"File IDMG:{idmg} FUUID:{fuuid} content is corrupt, moving file to dumpster")
+            if not file_ok:
+                LOGGER.warning(f"check_files_idmg File IDMG:{idmg} FUUID:{fuuid} content is corrupt, moving file to dumpster")
 
                 # Move the corrupt file to the dumpster
                 path_dumped_file = pathlib.Path(dumpster_path, file.name)
@@ -102,7 +107,7 @@ def check_files_idmg(configuration: FileHostConfiguration, idmg_path: pathlib.Pa
                     fp.write(file.name)
                     fp.write('\n')
             else:
-                LOGGER.debug(f"File IDMG:{idmg} FUUID:{fuuid} is OK")
+                LOGGER.debug(f"check_files_idmg File IDMG:{idmg} FUUID:{fuuid} is OK")
 
             file_position += 1
             files_checked += 1
