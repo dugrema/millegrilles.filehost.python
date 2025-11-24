@@ -727,19 +727,18 @@ async def _manage_file_list(configuration: FileHostConfiguration, files_path: pa
             with gzip.GzipFile(fileobj=raw_output, mode='wb', compresslevel=9) as gz_output:
                 output = BufferedWriter(gz_output, buffer_size=2 * 1024 * 1024)  # 2MB
 
-                # try:
-                #     quota_information = await asyncio.to_thread(bucket_listing_find_process, idmg_path, output, filecheck_output, filecheck_expiration)
-                #     async with semaphore:
-                #         with open(path_usage, 'wt') as output_usage:
-                #             await asyncio.to_thread(json.dump, quota_information, output_usage)
-                #         try:
-                #             await emit_event(idmg, 'usage', quota_information)
-                #         except Exception as e:
-                #             LOGGER.warning("Error emitting usage event: %s" % e)
-                # except (FileNotFoundError, ValueError, subprocess.CalledProcessError) as e:
-                #     LOGGER.warning(f"find operation not available or failed, will iterate through folders, error: {e}")
-                #     await iterate_buckets(idmg_path, path_usage, output, semaphore, emit_event)
-                await iterate_buckets(idmg_path, path_usage, output, semaphore, filecheck_output, filecheck_expiration, emit_event)
+                try:
+                    quota_information = await asyncio.to_thread(bucket_listing_find_process, idmg_path, output, filecheck_output, filecheck_expiration)
+                    async with semaphore:
+                        with open(path_usage, 'wt') as output_usage:
+                            await asyncio.to_thread(json.dump, quota_information, output_usage)
+                        try:
+                            await emit_event(idmg, 'usage', quota_information)
+                        except Exception as e:
+                            LOGGER.warning("Error emitting usage event: %s" % e)
+                except (FileNotFoundError, ValueError, subprocess.CalledProcessError) as e:
+                    LOGGER.warning(f"find operation not available or failed, will iterate through folders, error: {e}")
+                    await iterate_buckets(idmg_path, path_usage, output, semaphore, filecheck_output, filecheck_expiration, emit_event)
 
                 # Finish sending all from buffer
                 output.flush()
