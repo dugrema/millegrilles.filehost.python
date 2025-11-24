@@ -674,7 +674,7 @@ async def iter_bucket_files(path_idmg: pathlib.Path):
                         stat = await asyncio.to_thread(file.stat)
                         fuuid_count += 1
                         fuuid_size += stat.st_size
-                        yield {'name': file.name}
+                        yield {'name': file.name, 'mtime': stat.st_mtime, 'filepath': str(file)}
     except FileNotFoundError:
         pass  # No buckets
 
@@ -727,18 +727,19 @@ async def _manage_file_list(configuration: FileHostConfiguration, files_path: pa
             with gzip.GzipFile(fileobj=raw_output, mode='wb', compresslevel=9) as gz_output:
                 output = BufferedWriter(gz_output, buffer_size=2 * 1024 * 1024)  # 2MB
 
-                try:
-                    quota_information = await asyncio.to_thread(bucket_listing_find_process, idmg_path, output, filecheck_output, filecheck_expiration)
-                    async with semaphore:
-                        with open(path_usage, 'wt') as output_usage:
-                            await asyncio.to_thread(json.dump, quota_information, output_usage)
-                        try:
-                            await emit_event(idmg, 'usage', quota_information)
-                        except Exception as e:
-                            LOGGER.warning("Error emitting usage event: %s" % e)
-                except (FileNotFoundError, ValueError, subprocess.CalledProcessError) as e:
-                    LOGGER.warning(f"find operation not available or failed, will iterate through folders, error: {e}")
-                    await iterate_buckets(idmg_path, path_usage, output, semaphore, emit_event)
+                # try:
+                #     quota_information = await asyncio.to_thread(bucket_listing_find_process, idmg_path, output, filecheck_output, filecheck_expiration)
+                #     async with semaphore:
+                #         with open(path_usage, 'wt') as output_usage:
+                #             await asyncio.to_thread(json.dump, quota_information, output_usage)
+                #         try:
+                #             await emit_event(idmg, 'usage', quota_information)
+                #         except Exception as e:
+                #             LOGGER.warning("Error emitting usage event: %s" % e)
+                # except (FileNotFoundError, ValueError, subprocess.CalledProcessError) as e:
+                #     LOGGER.warning(f"find operation not available or failed, will iterate through folders, error: {e}")
+                #     await iterate_buckets(idmg_path, path_usage, output, semaphore, emit_event)
+                await iterate_buckets(idmg_path, path_usage, output, semaphore, filecheck_output, filecheck_expiration, emit_event)
 
                 # Finish sending all from buffer
                 output.flush()
@@ -827,9 +828,11 @@ def bucket_listing_find_process(idmg_path: pathlib.Path, output: BufferedWriter,
     return quota_information
 
 
-async def iterate_buckets(idmg_path: pathlib.Path, path_usage: pathlib.Path, output: BufferedWriter, semaphore: asyncio.Semaphore, emit_event):
+async def iterate_buckets(idmg_path: pathlib.Path, path_usage: pathlib.Path, output: BufferedWriter, semaphore: asyncio.Semaphore, filecheck_output: IOBase, filecheck_expiration: datetime.datetime, emit_event):
     idmg = idmg_path.name
     LOGGER.debug(f"Iterating through all buckets of {idmg}")
+
+    filecheck_expiration_ts = filecheck_expiration.timestamp()
 
     async for bucket_info in iter_bucket_files(idmg_path):
         await asyncio.sleep(0.001)  # Throttling
@@ -837,6 +840,14 @@ async def iterate_buckets(idmg_path: pathlib.Path, path_usage: pathlib.Path, out
             filename: str = bucket_info['name']
             filename_bytes = filename.encode('utf-8') + b'\n'
             await asyncio.to_thread(output.write, filename_bytes)
+
+            file_mtime: float = bucket_info['mtime']
+            if file_mtime < filecheck_expiration_ts:
+                # Add expired file to list of checks
+                file_path = bucket_info['filepath']
+                filecheck_output.write(file_path.encode('utf-8'))
+                filecheck_output.write(b'\n')
+
         except KeyError:
             # Quota information
             async with semaphore:
