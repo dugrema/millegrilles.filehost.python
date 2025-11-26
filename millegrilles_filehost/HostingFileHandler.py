@@ -28,7 +28,7 @@ from millegrilles_messages.messages.Hachage import VerificateurHachage, ErreurHa
 from millegrilles_messages.utils.FilePartUploader import CHUNK_SIZE
 
 CONST_CHUNK_SIZE = 64 * 1024                # 64kb
-CONST_REFRESH_LISTS_INTERVAl = 3_600 * 8    # Every 8 hours
+# CONST_REFRESH_LISTS_INTERVAl = 3_600 * 8    # Every 8 hours
 CONST_MAINTAIN_STAGING_INTERVAL = 3_600 * 1 # Every hour
 
 LOGGER = logging.getLogger(__name__)
@@ -325,7 +325,9 @@ class HostingFileHandler:
                 self.__logger.info("Done managing file list")
             self.__event_manage_file_lists.clear()  # Reset flag for next run
             try:
-                await asyncio.wait_for(self.__event_manage_file_lists.wait(), CONST_REFRESH_LISTS_INTERVAl)
+                list_management_interval = self.__context.configuration.list_management_interval
+                self.__logger.info(f"Will refresh file lists in {list_management_interval} seconds")
+                await asyncio.wait_for(self.__event_manage_file_lists.wait(), list_management_interval)
                 self.__logger.info("__manage_file_list_thread Triggered")
             except asyncio.TimeoutError:
                 pass
@@ -345,7 +347,9 @@ class HostingFileHandler:
                 except Exception:
                     self.__logger.exception("Error managing backup files")
             try:
-                await asyncio.wait_for(self.__event_manage_backup_files.wait(), CONST_REFRESH_LISTS_INTERVAl)
+                list_management_interval = self.__context.configuration.list_management_interval
+                self.__logger.info(f"Will maintain backups in {list_management_interval} seconds")
+                await asyncio.wait_for(self.__event_manage_backup_files.wait(), list_management_interval)
                 await self.__context.wait(30)  # wait 30 seconds to start to let the file system changes settle
             except asyncio.TimeoutError:
                 pass
