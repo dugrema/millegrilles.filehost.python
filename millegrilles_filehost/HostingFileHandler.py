@@ -68,6 +68,7 @@ class HostingFileHandler:
         self.__event_manage_backup_files = asyncio.Event()
         self.__check_files_process: Optional[multiprocessing.Process] = None
         self.__file_finishing_queue: asyncio.Queue[Optional[FileFinishingJob]] = asyncio.Queue(maxsize=20)
+        self.__next_stats_check: Optional[datetime.datetime] = None
 
     async def run(self):
         await self.maintenance()
@@ -320,9 +321,23 @@ class HostingFileHandler:
             async with self.__context.semaphore_disk_maintenance:
                 if self.__context.stopping is True:
                     return  # Semaphore released during shutdown
+
+                start_time = datetime.datetime.now()
+                if not self.__next_stats_check:
+                    stats_check = False
+                    self.__next_stats_check = datetime.datetime.now()  # Will run next time
+                elif self.__next_stats_check < start_time:
+                    stats_check = True
+                else:
+                    stats_check = False
+
                 self.__logger.info("Start managing file list")
-                await _manage_file_list(self.__context.configuration, files_path, self.__semaphore_usage_update, self.emit_event)
-                self.__logger.info("Done managing file list")
+                await _manage_file_list(self.__context.configuration, files_path, stats_check, self.__semaphore_usage_update, self.emit_event)
+                self.__logger.info(f"Done managing file list, full duration {datetime.datetime.now()-start_time}")
+
+                if stats_check:
+                    self.__next_stats_check = datetime.datetime.now() + datetime.timedelta(seconds=self.__context.configuration.list_stats_interval)
+                    self.__logger.info(f"Next stats check: {self.__next_stats_check}")
             self.__event_manage_file_lists.clear()  # Reset flag for next run
             try:
                 list_management_interval = self.__context.configuration.list_management_interval
@@ -658,10 +673,11 @@ def prepare_dir(path_idmg: pathlib.Path, fuuid: str) -> (pathlib.Path, pathlib.P
     return path_fuuid, path_staging
 
 
-async def iter_bucket_files(path_idmg: pathlib.Path):
+async def iter_bucket_files(path_idmg: pathlib.Path, file_stats: bool):
     """
     Generator that returns file names (dict: {name: str}) for all file buckets. The last item is a dict of stats.
     :param path_idmg:
+    :param file_stats:
     :return:
     """
     path_buckets = pathlib.Path(path_idmg, 'buckets')
@@ -674,13 +690,18 @@ async def iter_bucket_files(path_idmg: pathlib.Path):
         for bucket in path_buckets.iterdir():
             if bucket.is_dir():
                 for file in bucket.iterdir():
-                    if file.is_file():
+                    if file_stats and file.is_file():
                         stat = await asyncio.to_thread(file.stat)
                         fuuid_count += 1
                         fuuid_size += stat.st_size
                         yield {'name': file.name, 'mtime': stat.st_mtime, 'filepath': str(file)}
+                    else:
+                        yield {'name': file.name, 'mtime': None, 'filepath': str(file)}
     except FileNotFoundError:
         pass  # No buckets
+
+    if file_stats is None:
+        fuuid_size = None
 
     quota_information = {
         'date': math.floor(current_date.timestamp()),
@@ -690,7 +711,7 @@ async def iter_bucket_files(path_idmg: pathlib.Path):
     yield quota_information
 
 
-async def _manage_file_list(configuration: FileHostConfiguration, files_path: pathlib.Path, semaphore: asyncio.Semaphore, emit_event):
+async def _manage_file_list(configuration: FileHostConfiguration, files_path: pathlib.Path, stats_check: bool, semaphore: asyncio.Semaphore, emit_event):
     # Creates an updated list of files for each managed idmg
     # Also calculates usage (quotas)
     for idmg_path in files_path.iterdir():
@@ -731,15 +752,21 @@ async def _manage_file_list(configuration: FileHostConfiguration, files_path: pa
             with gzip.GzipFile(fileobj=raw_output, mode='wb', compresslevel=9) as gz_output:
                 output = BufferedWriter(gz_output, buffer_size=2 * 1024 * 1024)  # 2MB
 
+                if not stats_check:
+                    # Do not produce file check listing
+                    filecheck_output = None
+                    filecheck_expiration = None
+
                 try:
                     quota_information = await asyncio.to_thread(bucket_listing_find_process, idmg_path, output, filecheck_output, filecheck_expiration)
-                    async with semaphore:
-                        with open(path_usage, 'wt') as output_usage:
-                            await asyncio.to_thread(json.dump, quota_information, output_usage)
-                        try:
-                            await emit_event(idmg, 'usage', quota_information)
-                        except Exception as e:
-                            LOGGER.warning("Error emitting usage event: %s" % e)
+                    if quota_information:
+                        async with semaphore:
+                            with open(path_usage, 'wt') as output_usage:
+                                await asyncio.to_thread(json.dump, quota_information, output_usage)
+                            try:
+                                await emit_event(idmg, 'usage', quota_information)
+                            except Exception as e:
+                                LOGGER.warning("Error emitting usage event: %s" % e)
                 except (FileNotFoundError, ValueError, subprocess.CalledProcessError) as e:
                     LOGGER.warning(f"find operation not available or failed, will iterate through folders, error: {e}")
                     await iterate_buckets(idmg_path, path_usage, output, semaphore, filecheck_output, filecheck_expiration, emit_event)
@@ -749,12 +776,14 @@ async def _manage_file_list(configuration: FileHostConfiguration, files_path: pa
 
         # Delete old file
         await asyncio.to_thread(path_filelist.unlink, missing_ok=True)
-        await asyncio.to_thread(path_filecheck.unlink, missing_ok=True)
-        await asyncio.to_thread(path_filecheck_position.unlink, missing_ok=True)
+        if stats_check:
+            await asyncio.to_thread(path_filecheck.unlink, missing_ok=True)
+            await asyncio.to_thread(path_filecheck_position.unlink, missing_ok=True)
 
         # Replace by new file
         await asyncio.to_thread(path_filelist_work.rename, path_filelist)
-        await asyncio.to_thread(path_filecheck_work.rename, path_filecheck)
+        if stats_check:
+            await asyncio.to_thread(path_filecheck_work.rename, path_filecheck)
 
         # Remove incremental list
         path_filelist_incremental = pathlib.Path(idmg_path, 'list_incremental.txt')
@@ -763,14 +792,15 @@ async def _manage_file_list(configuration: FileHostConfiguration, files_path: pa
         LOGGER.info(f"_manage_file_list Done IDMG {idmg}, duration = {datetime.datetime.now() - start_time}")
 
 
-def bucket_listing_find_process(idmg_path: pathlib.Path, output: BufferedWriter, filecheck_output: IOBase, filecheck_expiration: datetime.datetime):
+def bucket_listing_find_process(idmg_path: pathlib.Path, output: BufferedWriter, filecheck_output: Optional[IOBase], filecheck_expiration: Optional[datetime.datetime]):
     """
     Starts sub-process with the os find utility to produce a full listing of files in the bucket. Much more efficient
     than iterating through the directories but only works on Linux.
 
     :param idmg_path:
     :param output:
-    :filecheck_output:
+    :param filecheck_output:
+    :param filecheck_expiration:
     :return:
     """
     idmg = idmg_path.name
@@ -781,9 +811,14 @@ def bucket_listing_find_process(idmg_path: pathlib.Path, output: BufferedWriter,
 
     path_buckets = pathlib.Path(idmg_path, 'buckets')
     full_path = path_buckets.absolute()
-    cmd = ["find", full_path, "-type", "f", "-printf", "%T@\t%s\t%p\n"]
 
-    filecheck_expiration_ts = filecheck_expiration.timestamp()
+    if filecheck_expiration:
+        cmd = ["find", full_path, "-mindepth", "2", "-type", "f", "-printf", "%T@\t%s\t%p\n"]
+        filecheck_expiration_ts = filecheck_expiration.timestamp()
+    else:
+        # Only list files under buckets (note : this does not filter out directories, but it is *much* faster on Linux)
+        cmd = ["find", full_path, "-mindepth", "2"]
+        filecheck_expiration_ts = None
 
     def set_priority():
         import os
@@ -793,29 +828,38 @@ def bucket_listing_find_process(idmg_path: pathlib.Path, output: BufferedWriter,
     with subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, preexec_fn=set_priority) as proc:
         LOGGER.info(f"Using find to traverse buckets of {idmg}")
         for line in proc.stdout:
-            mtime_str, file_size_str, filename = line.split('\t')
+            if filecheck_expiration:
+                mtime_str, file_size_str, filename = line.split('\t')
+            else:
+                filename = line
+                mtime_str = None
+                file_size_str = None
+
             file_path = pathlib.Path(path_buckets, filename.strip())
             filename = file_path.name  # Keep file name only
             filename_bytes = filename.encode('utf-8') + b'\n'
 
-            try:
-                file_size = int(file_size_str)
-            except ValueError:
-                file_size = 0
-
-            try:
-                mtime = float(mtime_str)
-            except ValueError:
-                mtime = 0
-
             output.write(filename_bytes)
 
             fuuid_count += 1
-            fuuid_size += file_size
 
-            if mtime < filecheck_expiration_ts:
-                filecheck_output.write(str(file_path).encode('utf-8'))
-                filecheck_output.write(b'\n')
+            if filecheck_expiration_ts:
+                try:
+                    file_size = int(file_size_str)
+                except ValueError:
+                    file_size = 0
+
+                try:
+                    mtime = float(mtime_str)
+                except ValueError:
+                    mtime = 0
+
+                # Produce stats
+                fuuid_size += file_size
+
+                if mtime < filecheck_expiration_ts:
+                    filecheck_output.write(str(file_path).encode('utf-8'))
+                    filecheck_output.write(b'\n')
 
         proc.stdout.close()
         err_output, _ = proc.communicate()  # read any remaining stderr
@@ -823,21 +867,28 @@ def bucket_listing_find_process(idmg_path: pathlib.Path, output: BufferedWriter,
             raise ValueError(f"Find failed ({proc.returncode}):")
 
     # Quota information
-    quota_information = {
-        'date': math.floor(current_date.timestamp()),
-        'fuuid': {'count': fuuid_count, 'size': fuuid_size}
-    }
+    if filecheck_expiration:
+        quota_information = {
+            'date': math.floor(current_date.timestamp()),
+            'fuuid': {'count': fuuid_count, 'size': fuuid_size}
+        }
 
-    return quota_information
+        return quota_information
+    else:
+        return None
 
 
 async def iterate_buckets(idmg_path: pathlib.Path, path_usage: pathlib.Path, output: BufferedWriter, semaphore: asyncio.Semaphore, filecheck_output: IOBase, filecheck_expiration: datetime.datetime, emit_event):
     idmg = idmg_path.name
     LOGGER.debug(f"Iterating through all buckets of {idmg}")
 
-    filecheck_expiration_ts = filecheck_expiration.timestamp()
+    file_stats = filecheck_expiration is not None
+    if file_stats:  # Optional stats step
+        filecheck_expiration_ts = filecheck_expiration.timestamp()
+    else:
+        filecheck_expiration_ts = None
 
-    async for bucket_info in iter_bucket_files(idmg_path):
+    async for bucket_info in iter_bucket_files(idmg_path, file_stats):
         await asyncio.sleep(0.001)  # Throttling
         try:
             filename: str = bucket_info['name']
@@ -845,22 +896,23 @@ async def iterate_buckets(idmg_path: pathlib.Path, path_usage: pathlib.Path, out
             await asyncio.to_thread(output.write, filename_bytes)
 
             file_mtime: float = bucket_info['mtime']
-            if file_mtime < filecheck_expiration_ts:
+            if file_stats and file_mtime < filecheck_expiration_ts:
                 # Add expired file to list of checks
                 file_path = bucket_info['filepath']
                 filecheck_output.write(file_path.encode('utf-8'))
                 filecheck_output.write(b'\n')
 
         except KeyError:
-            # Quota information
-            async with semaphore:
-                with open(path_usage, 'wt') as output_usage:
-                    # await asyncio.to_thread(json.dump, bucket_info, output_usage)
-                    await asyncio.to_thread(json.dump, bucket_info, output_usage)
-                try:
-                    await emit_event(idmg, 'usage', bucket_info)
-                except Exception as e:
-                    LOGGER.warning("Error emitting usage event: %s" % e)
+            if file_stats:  # Optional stats step
+                # Quota information
+                async with semaphore:
+                    with open(path_usage, 'wt') as output_usage:
+                        # await asyncio.to_thread(json.dump, bucket_info, output_usage)
+                        await asyncio.to_thread(json.dump, bucket_info, output_usage)
+                    try:
+                        await emit_event(idmg, 'usage', bucket_info)
+                    except Exception as e:
+                        LOGGER.warning("Error emitting usage event: %s" % e)
 
 def file_part_reader(path_parts: pathlib.Path):
     parts = list()

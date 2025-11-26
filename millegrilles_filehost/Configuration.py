@@ -19,6 +19,7 @@ ENV_CHECK_THROTTLE_MS = 'CHECK_THROTTLE_MS'
 ENV_CHECK_BATCH_LEN = 'CHECK_BATCH_LEN'
 ENV_CHECK_BATCH_SIZE = 'CHECK_BATCH_SIZE'
 ENV_LIST_MANAGEMENT_INTERVAL = 'LIST_INTERVAL'
+ENV_LIST_STATS_INTERVAL = 'LIST_STATS_INTERVAL'
 
 # Default values
 DEFAULT_DIR_CONFIGURATION="/var/opt/millegrilles/filehost/configuration"
@@ -32,6 +33,7 @@ DEFAULT_CHECK_BATCH_LEN=10_000
 DEFAULT_CHECK_BATCH_SIZE=10_000_000_000
 DEFAULT_CHECK_DAYS=30
 DEFAULT_LIST_MANAGEMENT_INTERVAL=28_800
+DEFAULT_LIST_STATS_INTERVAL=86_400
 
 
 def _parse_command_line():
@@ -87,6 +89,7 @@ class FileHostConfiguration:
         self.continual_check_days: int = DEFAULT_CHECK_DAYS
         self.check_interval_secs: Optional[int] = None
         self.list_management_interval = DEFAULT_LIST_MANAGEMENT_INTERVAL
+        self.list_stats_interval = DEFAULT_LIST_STATS_INTERVAL
 
     def parse_config(self, args: argparse.Namespace):
         self.dir_configuration = os.environ.get(ENV_DIR_CONFIGURATION) or self.dir_configuration
@@ -118,6 +121,10 @@ class FileHostConfiguration:
         list_management_interval = os.environ.get(ENV_LIST_MANAGEMENT_INTERVAL)
         if list_management_interval:
             self.list_management_interval = int(list_management_interval)
+
+        list_stats_interval = os.environ.get(ENV_LIST_STATS_INTERVAL)
+        if list_stats_interval:
+            self.list_stats_interval = int(list_stats_interval)
 
         if args.continualcheck:
             self.__logger.info(f"Enabling continual background file check every {args.continualcheck} seconds")
