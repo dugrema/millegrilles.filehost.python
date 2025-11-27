@@ -701,14 +701,13 @@ async def iter_bucket_files(path_idmg: pathlib.Path, file_stats: bool):
         pass  # No buckets
 
     if file_stats is None:
-        fuuid_size = None
-
-    quota_information = {
-        'date': math.floor(current_date.timestamp()),
-        'fuuid': {'count': fuuid_count, 'size': fuuid_size}
-    }
-
-    yield quota_information
+        yield None
+    else:
+        quota_information = {
+            'date': math.floor(current_date.timestamp()),
+            'fuuid': {'count': fuuid_count, 'size': fuuid_size}
+        }
+        yield quota_information
 
 
 async def _manage_file_list(configuration: FileHostConfiguration, files_path: pathlib.Path, stats_check: bool, semaphore: asyncio.Semaphore, emit_event):
@@ -759,20 +758,31 @@ async def _manage_file_list(configuration: FileHostConfiguration, files_path: pa
 
                 try:
                     quota_information = await asyncio.to_thread(bucket_listing_find_process, idmg_path, output, filecheck_output, filecheck_expiration)
-                    if quota_information:
-                        async with semaphore:
-                            with open(path_usage, 'wt') as output_usage:
-                                await asyncio.to_thread(json.dump, quota_information, output_usage)
-                            try:
-                                await emit_event(idmg, 'usage', quota_information)
-                            except Exception as e:
-                                LOGGER.warning("Error emitting usage event: %s" % e)
                 except (FileNotFoundError, ValueError, subprocess.CalledProcessError) as e:
                     LOGGER.warning(f"find operation not available or failed, will iterate through folders, error: {e}")
-                    await iterate_buckets(idmg_path, path_usage, output, semaphore, filecheck_output, filecheck_expiration, emit_event)
+                    quota_information = await iterate_buckets(idmg_path, output, filecheck_output, filecheck_expiration)
 
                 # Finish sending all from buffer
                 output.flush()
+
+        async with semaphore:
+            if not quota_information:
+                # Load existing usage information
+                try:
+                    with open(path_usage, 'rt') as input_usage:
+                        quota_information = await asyncio.to_thread(json.load, input_usage)
+                except (FileNotFoundError, json.JSONDecodeError) as e:
+                    LOGGER.warning(f"Error loading existing usage information: {e}")
+            else:
+                # Save quota information
+                with open(path_usage, 'wt') as output_usage:
+                    await asyncio.to_thread(json.dump, quota_information, output_usage)
+
+            if quota_information:
+                try:
+                    await emit_event(idmg, 'usage', quota_information)
+                except Exception as e:
+                    LOGGER.warning("Error emitting usage event: %s" % e)
 
         # Delete old file
         await asyncio.to_thread(path_filelist.unlink, missing_ok=True)
@@ -863,7 +873,7 @@ def bucket_listing_find_process(idmg_path: pathlib.Path, output: BufferedWriter,
 
         proc.stdout.close()
         err_output, _ = proc.communicate()  # read any remaining stderr
-        if proc.returncode != 0:
+        if proc.returncode not in (0, 1):  # 0: OK, 1: No content found
             raise ValueError(f"Find failed ({proc.returncode}):")
 
     # Quota information
@@ -878,7 +888,7 @@ def bucket_listing_find_process(idmg_path: pathlib.Path, output: BufferedWriter,
         return None
 
 
-async def iterate_buckets(idmg_path: pathlib.Path, path_usage: pathlib.Path, output: BufferedWriter, semaphore: asyncio.Semaphore, filecheck_output: IOBase, filecheck_expiration: datetime.datetime, emit_event):
+async def iterate_buckets(idmg_path: pathlib.Path, output: BufferedWriter, filecheck_output: IOBase, filecheck_expiration: datetime.datetime):
     idmg = idmg_path.name
     LOGGER.debug(f"Iterating through all buckets of {idmg}")
 
@@ -887,6 +897,8 @@ async def iterate_buckets(idmg_path: pathlib.Path, path_usage: pathlib.Path, out
         filecheck_expiration_ts = filecheck_expiration.timestamp()
     else:
         filecheck_expiration_ts = None
+
+    usage_data = None
 
     async for bucket_info in iter_bucket_files(idmg_path, file_stats):
         await asyncio.sleep(0.001)  # Throttling
@@ -903,16 +915,20 @@ async def iterate_buckets(idmg_path: pathlib.Path, path_usage: pathlib.Path, out
                 filecheck_output.write(b'\n')
 
         except KeyError:
-            if file_stats:  # Optional stats step
-                # Quota information
-                async with semaphore:
-                    with open(path_usage, 'wt') as output_usage:
-                        # await asyncio.to_thread(json.dump, bucket_info, output_usage)
-                        await asyncio.to_thread(json.dump, bucket_info, output_usage)
-                    try:
-                        await emit_event(idmg, 'usage', bucket_info)
-                    except Exception as e:
-                        LOGGER.warning("Error emitting usage event: %s" % e)
+            if file_stats:
+                usage_data = bucket_info
+            # if file_stats:  # Optional stats step
+            #     # Quota information
+            #     async with semaphore:
+            #         with open(path_usage, 'wt') as output_usage:
+            #             # await asyncio.to_thread(json.dump, bucket_info, output_usage)
+            #             await asyncio.to_thread(json.dump, bucket_info, output_usage)
+            #         try:
+            #             await emit_event(idmg, 'usage', bucket_info)
+            #         except Exception as e:
+            #             LOGGER.warning("Error emitting usage event: %s" % e)
+
+    return usage_data
 
 def file_part_reader(path_parts: pathlib.Path):
     parts = list()
