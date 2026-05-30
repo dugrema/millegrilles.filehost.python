@@ -20,6 +20,7 @@ ENV_CHECK_BATCH_LEN = 'CHECK_BATCH_LEN'
 ENV_CHECK_BATCH_SIZE = 'CHECK_BATCH_SIZE'
 ENV_LIST_MANAGEMENT_INTERVAL = 'LIST_INTERVAL'
 ENV_LIST_STATS_INTERVAL = 'LIST_STATS_INTERVAL'
+ENV_STAGING_FILE_TIMEOUT = 'STAGING_FILE_TIMEOUT'
 
 # Default values
 DEFAULT_DIR_CONFIGURATION="/var/opt/millegrilles/filehost/configuration"
@@ -34,6 +35,7 @@ DEFAULT_CHECK_BATCH_SIZE=10_000_000_000
 DEFAULT_CHECK_DAYS=30
 DEFAULT_LIST_MANAGEMENT_INTERVAL=28_800
 DEFAULT_LIST_STATS_INTERVAL=86_400
+DEFAULT_STAGING_FILE_TIMEOUT_SEC=86_400 * 3
 
 
 def _parse_command_line():
@@ -90,6 +92,7 @@ class FileHostConfiguration:
         self.check_interval_secs: Optional[int] = None
         self.list_management_interval = DEFAULT_LIST_MANAGEMENT_INTERVAL
         self.list_stats_interval = DEFAULT_LIST_STATS_INTERVAL
+        self.staging_file_timeout_secs = DEFAULT_STAGING_FILE_TIMEOUT_SEC
 
     def parse_config(self, args: argparse.Namespace):
         self.dir_configuration = os.environ.get(ENV_DIR_CONFIGURATION) or self.dir_configuration
@@ -125,6 +128,10 @@ class FileHostConfiguration:
         list_stats_interval = os.environ.get(ENV_LIST_STATS_INTERVAL)
         if list_stats_interval:
             self.list_stats_interval = int(list_stats_interval)
+
+        staging_file_timeout = os.environ.get(ENV_STAGING_FILE_TIMEOUT)
+        if staging_file_timeout:
+            self.staging_file_timeout_secs = int(staging_file_timeout)
 
         if args.continualcheck:
             self.__logger.info(f"Enabling continual background file check every {args.continualcheck} seconds")

@@ -376,7 +376,7 @@ class HostingFileHandler:
                 if self.__context.stopping is True:
                     return  # Semaphore released during shutdown
                 try:
-                    await _manage_staging(files_path)
+                    await _manage_staging(files_path, self.__context.configuration)
                 except:
                     self.__logger.exception("__manage_staging_thread Error cleaning up staging")
             await self.__context.wait(CONST_MAINTAIN_STAGING_INTERVAL)  # Every hour
@@ -944,10 +944,10 @@ def file_part_reader(path_parts: pathlib.Path):
         yield part['part']
 
 
-async def _manage_staging(files_path: pathlib.Path):
+async def _manage_staging(files_path: pathlib.Path, configuration: FileHostConfiguration):
 
     now = datetime.datetime.now()
-    expired = now - datetime.timedelta(hours=12)
+    expired = now - datetime.timedelta(seconds=configuration.staging_file_timeout_secs)
     expired_epoch = expired.timestamp()
 
     for idmg_path in files_path.iterdir():
