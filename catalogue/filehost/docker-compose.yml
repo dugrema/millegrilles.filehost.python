@@ -1,0 +1,68 @@
+include:
+  - path: ../include/app_net.yml
+    project_directory: ..
+
+name: ${INSTANCE_NAME}
+
+services:
+  filehost:
+    image: "replace_me"
+    x-millegrilles-certificat:
+      roles:
+        - filehost
+      exchanges:
+        - 1.public
+      dns:
+        localhost: true
+        hostnames:
+          - filehost
+        domain: true
+      split: true
+    environment:
+      - WEB_CERT=/run/secrets/cert.pem
+      - WEB_KEY=/run/secrets/key.pem
+      - WEB_PORT=1443
+      - DIR_FILES=/var/opt/millegrilles/filehost/files
+      - DIR_DATA=/var/opt/millegrilles/filehost/data
+      - DIR_CONFIGURATION=/var/opt/millegrilles/filehost/configuration
+      - CHECK_THROTTLE_MS=3
+      - CHECK_BATCH_SIZE=5000000000
+      - CHECK_BATCH_LEN=5000
+      - LIST_INTERVAL=10800
+      - LIST_STATS_INTERVAL=86400
+    volumes:
+      - ${MILLEGRILLES_ROOT}/var/filehost:/var/opt/millegrilles/filehost
+    deploy:
+      resources:
+        limits:
+          cpus: '3.0'
+          memory: 500M
+      restart_policy:
+        condition: on-failure
+        delay: 20s
+        max_attempts: 1000
+    configs:
+      - source: filehost
+        target: /run/secrets/cert.pem
+      - source: mgca
+        target: /run/secrets/millegrille.cert.pem
+    secrets:
+      - source: filehost
+        target: key.pem
+      - source: passwd_redis
+        target: redis.txt
+    hostname: filehost
+    networks:
+      - app_net
+
+configs:
+  filehost:
+    file: ${MILLEGRILLES_ROOT}/secrets/filehost.cert.pem
+  mgca:
+    file: ${MILLEGRILLES_ROOT}/etc/millegrille.pem
+
+secrets:
+  filehost:
+    file: ${MILLEGRILLES_ROOT}/secrets/filehost.key.pem
+  passwd_redis:
+    file: ${MILLEGRILLES_ROOT}/secrets/passwd.redis.txt

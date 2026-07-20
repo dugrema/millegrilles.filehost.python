@@ -1,0 +1,13 @@
+location /filehost {
+  include /etc/nginx/conf.d/modules/filehost.proxypass;
+  include /etc/nginx/conf.d/component_proxyheaders.include;
+  include /etc/nginx/conf.d/auth_tlsclient.include;
+
+  proxy_read_timeout 3m;
+  client_max_body_size 10g;
+
+  # Desactiver buffering de transfert
+  proxy_buffering off;  # Desactiver buffering de la reponse (download)
+  proxy_request_buffering off;  # Desactiver buffering de la request (upload)
+  # proxy_http_version 1.1;  # Already set
+}

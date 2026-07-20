@@ -1,0 +1,8 @@
+{
+  "name": "filehost_1cpu",
+  "version": "DEV",
+  "labels": {
+    "en": "Filehost - Handles client files for MilleGrille (1 core)",
+    "fr": "Hébergeur de fichiers - Conserver les fichiers clients de la MilleGrille (1 core)"
+  }
+}

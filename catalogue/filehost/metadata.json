@@ -1,0 +1,8 @@
+{
+  "name": "filehost",
+  "version": "DEV",
+  "labels": {
+    "en": "Filehost - Handles client files for MilleGrille",
+    "fr": "Hébergeur de fichiers - Conserver les fichiers clients de la MilleGrille"
+  }
+}
