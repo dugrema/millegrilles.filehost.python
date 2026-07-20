@@ -68,8 +68,8 @@ archive-build:
 package: docker-build archive-build
 
 deploy: package
-    @echo "==> Pushing docker image artifacts..."
-    @docker push $(DOCKER_IMAGE):$(VERSION_FULL)
+	@docker push "${DOCKER_IMAGE}:${VERSION_FULL}"
+	@echo "==> Pushing docker image artifacts..."
 	@echo "==> Deploying artifacts..."
 	@for dir in catalogue/*; do \
 		if [ -d "$$dir" ]; then \
