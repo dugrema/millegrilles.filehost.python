@@ -50,7 +50,7 @@ services:
       - source: filehost_1cpu
         target: key.pem
       - source: passwd_redis
-        target: redis.txt
+        target: passwd.redis.txt
     hostname: filehost
     networks:
       - app_net
@@ -65,4 +65,4 @@ secrets:
   filehost_1cpu:
     file: ${MILLEGRILLES_ROOT}/secrets/filehost_1cpu.key.pem
   passwd_redis:
-    file: ${MILLEGRILLES_ROOT}/secrets/passwd.redis.txt
+    file: ${MILLEGRILLES_ROOT}/secrets/redis.txt
