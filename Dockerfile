@@ -9,8 +9,7 @@ COPY requirements.txt $BUILD_FOLDER/requirements.txt
 
 RUN pip3 install --no-cache-dir -r $BUILD_FOLDER/requirements.txt && \
     cd $BUILD_FOLDER/ && \
-    mkdir -p /var/opt/millegrilles/filehost/files && \
-    chown -R 1000:1000 /var/opt/millegrilles/filehost
+    mkdir -p /var/opt/millegrilles/filehost/files
 
 FROM stage1
 
@@ -26,10 +25,9 @@ EXPOSE 80 443 444
 COPY . $BUILD_FOLDER
 
 RUN cd $BUILD_FOLDER/ && \
-    python3 ./setup.py install
+    python3 ./setup.py install && \
+    chown -R 1000:1000 /var/opt/millegrilles/filehost
 
-# UID fichiers = 984
-# GID millegrilles = 980
 USER 1000:1000
 
 VOLUME ["/var/opt/millegrilles/filehost"]
