@@ -10,7 +10,7 @@ COPY requirements.txt $BUILD_FOLDER/requirements.txt
 RUN pip3 install --no-cache-dir -r $BUILD_FOLDER/requirements.txt && \
     cd $BUILD_FOLDER/ && \
     mkdir -p /var/opt/millegrilles/filehost/files && \
-    chown 1000:1000 /var/opt/millegrilles/filehost/files
+    chown -R 1000:1000 /var/opt/millegrilles/filehost
 
 FROM stage1
 
