@@ -1,5 +1,5 @@
 location /filehost {
-  include /etc/nginx/conf.d/modules/filehost_1cpu__filehost.proxypass;
+  include /etc/nginx/conf.d/modules/applications/filehost_1cpu__filehost.proxypass;
   include /etc/nginx/conf.d/component_proxyheaders.include;
 
   if ($request_method = 'OPTIONS') {
