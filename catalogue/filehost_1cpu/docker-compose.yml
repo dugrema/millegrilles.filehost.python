@@ -7,6 +7,7 @@ name: ${INSTANCE_NAME}
 services:
   filehost_1cpu:
     image: "replace_me"
+    user: "${CONTAINER_UID}:${CONTAINER_GID}"
     x-millegrilles-certificat:
       roles:
         - filehost
