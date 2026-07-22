@@ -32,7 +32,7 @@ services:
       - LIST_INTERVAL=10800
       - LIST_STATS_INTERVAL=86400
     volumes:
-      - ${MILLEGRILLES_ROOT}/var/filehost:/var/opt/millegrilles/filehost
+      - ${MOUNT_FILEHOST}:/var/opt/millegrilles/filehost
     deploy:
       resources:
         limits:
