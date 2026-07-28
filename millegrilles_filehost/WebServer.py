@@ -50,7 +50,7 @@ class WebServer:
 
         # Configure web port, SSL
         port = self.__context.configuration.web_port
-        site = web.TCPSite(runner, '0.0.0.0', port, ssl_context=self.__context.ssl_context)
+        site = web.TCPSite(runner, None, port, ssl_context=self.__context.ssl_context)
 
         try:
             await site.start()
