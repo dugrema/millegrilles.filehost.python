@@ -134,8 +134,9 @@ def _load_ssl_context(configuration: FileHostConfiguration) -> ssl.SSLContext:
     ssl_context = SSLContext()
 
     LOGGER.debug("Load web certificate %s" % configuration.web_cert_path)
-    ssl_context.load_cert_chain(configuration.web_cert_path,
-                                configuration.web_key_path)
+    # Support the use of combined key/cert PEM files
+    private_cert_path = configuration.web_cert_path or configuration.web_key_path
+    ssl_context.load_cert_chain(private_cert_path, configuration.web_key_path)
 
     if configuration.web_ca_path:
         ssl_context.load_verify_locations(cafile=configuration.web_ca_path)

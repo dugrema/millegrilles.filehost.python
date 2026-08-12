@@ -26,8 +26,8 @@ ENV_STAGING_FILE_TIMEOUT = 'STAGING_FILE_TIMEOUT'
 DEFAULT_DIR_CONFIGURATION="/var/opt/millegrilles/filehost/configuration"
 DEFAULT_DIR_FILES="/var/opt/millegrilles/filehost/files"
 DEFAULT_DIR_DATA="/var/opt/millegrilles/filehost/data"
-DEFAULT_WEB_CERT="/run/secrets/web.cert"
-DEFAULT_WEB_KEY="/run/secrets/web.key"
+# DEFAULT_WEB_CERT="/run/secrets/web.cert"
+DEFAULT_WEB_KEY="/run/secrets/key_cert.pem"
 DEFAULT_WEB_PORT=443
 DEFAULT_CHECK_THROTTLE_MS=10
 DEFAULT_CHECK_BATCH_LEN=10_000
@@ -81,7 +81,7 @@ class FileHostConfiguration:
         self.dir_files: str = DEFAULT_DIR_FILES
         self.dir_data: str = DEFAULT_DIR_DATA
 
-        self.web_cert_path: str = DEFAULT_WEB_CERT
+        self.web_cert_path: Optional[str] = None
         self.web_key_path: str = DEFAULT_WEB_KEY
         self.web_ca_path: Optional[str] = None
         self.web_port: int = DEFAULT_WEB_PORT
