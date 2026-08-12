@@ -15,8 +15,7 @@ FROM stage1
 
 ARG VBUILD=2025.4.0
 
-ENV WEB_CERT=/run/secrets/web.cert \
-    WEB_KEY=/run/secrets/web.key \
+ENV WEB_KEY=/run/secrets/key_cert.pem \
     WEB_PORT=1443
 
 EXPOSE 80 443 444
