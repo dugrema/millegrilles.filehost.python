@@ -1,5 +1,6 @@
 {
   "name": "filehost_1cpu",
+  "alias": "filehost",
   "version": "DEV",
   "securite": "1.public",
   "labels": {
