@@ -1,3 +1,4 @@
+import aiofiles
 import asyncio
 import datetime
 import logging
@@ -430,12 +431,10 @@ class HostingFileHandler:
             return web.HTTPExpectationFailed()  # 417 - Upload already in progress
 
         try:
-            with open(path_part_work, 'wb') as output:
+            async with aiofiles.open(path_part_work, 'wb') as output:
                 async for chunk in request.content.iter_chunked(CONST_CHUNK_SIZE):
-                    # await asyncio.to_thread(output.write, chunk)
-                    output.write(chunk)
-                # await asyncio.to_thread(path_part_work.rename, path_part)
-                path_part_work.rename(path_part)
+                    await output.write(chunk)
+            path_part_work.rename(path_part)
         finally:
             # await asyncio.to_thread(path_part_work.unlink, missing_ok=True)  # Ensure cleanup
             path_part_work.unlink(missing_ok=True)
@@ -535,7 +534,7 @@ class HostingFileHandler:
             filechecks_config_path = pathlib.Path(idmg_path, 'filechecks.json')
             try:
                 with open(filechecks_config_path, 'rt') as fp:
-                    filechecks_config = json.load(fp)
+                    filechecks_config = await asyncio.to_thread(json.load, fp)
             except (FileNotFoundError, JSONDecodeError):
                 filechecks_config = dict()   # New file
 
@@ -558,7 +557,7 @@ class HostingFileHandler:
                 # Save new start date for this batch
                 filechecks_config['not_after_date'] = math.floor(not_after_date.timestamp())
                 with open(filechecks_config_path, 'wt') as fp:
-                    json.dump(filechecks_config, fp)
+                    await asyncio.to_thread(json.dump, filechecks_config, fp)
                 self.__logger.info(f"Starting new file check batch for IDMG:{idmg_path.name}")
 
             # Spawn subprocess to check files
@@ -584,7 +583,7 @@ class HostingFileHandler:
 
             with open(filechecks_config_path, 'wt') as fp:
                 # await asyncio.to_thread(json.dump, filechecks_config, fp)
-                json.dump(filechecks_config, fp)
+                await asyncio.to_thread(json.dump, filechecks_config, fp)
 
     def trigger_event_manage_file_lists(self):
         self.__event_manage_file_lists.set()
@@ -641,10 +640,11 @@ async def receive_fuuid(request: web.Request, workfile_path: pathlib.Path, fuuid
     else:
         verifier = None
 
-    with open(workfile_path, 'wb') as output:
+    async with aiofiles.open(workfile_path, 'wb') as output:
         async for chunk in request.content.iter_chunked(CONST_CHUNK_SIZE):
-            output.write(chunk)
-            verifier.update(chunk)
+            await output.write(chunk)
+            if verifier:
+                verifier.update(chunk)
 
     if verifier:
         # Verify digest, raises Exception when mismatch
@@ -736,7 +736,7 @@ async def _manage_file_list(configuration: FileHostConfiguration, files_path: pa
         filecheck_expiration = start_time - datetime.timedelta(days_check)
         try:
             with open(path_filechecks_configuration, 'rt') as fp:
-                filecheck_configuration = json.load(fp)
+                filecheck_configuration = await asyncio.to_thread(json.load, fp)
             not_after_date_int = int(filecheck_configuration['not_after_date'])
             not_after_date = datetime.datetime.fromtimestamp(not_after_date_int)
             if not_after_date < filecheck_expiration:
@@ -763,7 +763,7 @@ async def _manage_file_list(configuration: FileHostConfiguration, files_path: pa
                     quota_information = await iterate_buckets(idmg_path, output, filecheck_output, filecheck_expiration)
 
                 # Finish sending all from buffer
-                output.flush()
+                await asyncio.to_thread(output.flush)
 
         async with semaphore:
             if not quota_information:
@@ -981,7 +981,7 @@ async def get_file_usage(path_idmg: pathlib.Path, semaphore: asyncio.Semaphore):
     async with semaphore:
         with open(path_usage_file, 'rt') as fp:
             # usage = await asyncio.to_thread(json.load, fp)
-            usage = json.load(fp)
+            usage = await asyncio.to_thread(json.load, fp)
 
     return usage
 
@@ -995,8 +995,7 @@ async def update_file_usage(path_idmg: pathlib.Path, path_fuuid: pathlib.Path, s
     async with semaphore:
         try:
             with open(path_usage_file, 'r+') as fp:
-                # usage_file = await asyncio.to_thread(json.load, fp)
-                usage_file = json.load(fp)
+                usage_file = await asyncio.to_thread(json.load, fp)
                 fuuid = usage_file['fuuid']
                 fuuid['count'] = fuuid['count'] + 1
                 fuuid['size'] = fuuid['size'] + file_size
@@ -1007,8 +1006,7 @@ async def update_file_usage(path_idmg: pathlib.Path, path_fuuid: pathlib.Path, s
         except FileNotFoundError:
             with open(path_usage_file, 'wt') as fp:
                 usage_file = {'date': now, 'fuuid': {'count': 1, 'size': file_size}}
-                # await asyncio.to_thread(json.dump, usage_file, fp)
-                json.dump(usage_file, fp)
+                await asyncio.to_thread(json.dump, usage_file, fp)
 
     return usage_file
 
@@ -1077,15 +1075,15 @@ async def stream_reponse(request: web.Request, filepath: pathlib.Path,
         return response
 
     try:
-        with open(filepath, 'rb') as fp:
+        async with aiofiles.open(filepath, 'rb') as fp:
             if start is not None and start > 0:
-                fp.seek(start, 0)
+                await fp.seek(start, 0)
                 position = start
             else:
                 position = 0
 
             while True:
-                chunk = fp.read(64*1024)
+                chunk = await fp.read(64*1024)
                 if not chunk:
                     break
 
@@ -1164,15 +1162,15 @@ async def stream_file_response(request: web.Request, filepath: pathlib.Path, eta
         return response
 
     try:
-        with open(filepath, 'rb') as fp:
+        async with aiofiles.open(filepath, 'rb') as fp:
             if start is not None and start > 0:
-                fp.seek(start, 0)
+                await fp.seek(start, 0)
                 position = start
             else:
                 position = 0
 
             while True:
-                chunk = fp.read(64*1024)
+                chunk = await fp.read(64*1024)
                 if not chunk:
                     break
 
