@@ -12,7 +12,6 @@ services:
         hostnames:
           - filehost
         domain: true
-      split: true
     environment:
       - WEB_KEY=/run/secrets/key_cert.pem
       - WEB_PORT=1443
