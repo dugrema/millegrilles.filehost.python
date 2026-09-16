@@ -19,6 +19,9 @@ from millegrilles_messages.utils.TarStream import stream_path_to_tar_async
 CONST_BACKUP_ROTATION_INTERVAL = 3_600 * 24     # Once a day
 CONST_ROLE_FILECONTROLER = 'filecontroler'
 
+VERSION_FINAL = 'final'  # Special version - Final is for finalized archives, it is a folder and a type of archive
+
+
 class HostingBackupFileHandler:
 
     def __init__(self, context: FileHostContext):
@@ -65,17 +68,22 @@ class HostingBackupFileHandler:
             # This is not a file manager and it is trying to put a new file for a domain it does not control - REJECT
             return web.HTTPForbidden()
 
-        if file_type not in ['final', 'concatene', 'incremental']:
+        if file_type not in [VERSION_FINAL, 'concatene', 'incremental']:
             self.__logger.info("put_backup_v2 Unknown file type : %s" % file_type)
             return web.HTTPBadRequest()
 
         # Check if the file already exists
         path_domain = pathlib.Path(path_idmg, 'backup_v2', domain)
-        path_version = pathlib.Path(path_domain, version)
+
+        if file_type == VERSION_FINAL:
+            # Final files always go in the final/ directory
+            path_version = pathlib.Path(path_domain, VERSION_FINAL)
+        else:
+            path_version = pathlib.Path(path_domain, version)
         path_file = pathlib.Path(path_version, filename)
         path_file_work = pathlib.Path(path_version, filename + '.work')
         if path_file.exists():
-            return web.HTTPConflict()  # File already received
+            return web.HTTPConflict()  # File already received - Respond HTTP 409
 
         # Ensure the directory exists or can be created
         # await asyncio.to_thread(path_version.mkdir, parents=True, exist_ok=True)
@@ -135,26 +143,12 @@ class HostingBackupFileHandler:
             path_file_work.rename(path_file)
 
             if header_archive['type_archive'] == 'C':
+                # Rotation of current version of backup files (impact on some GETs)
                 await self.create_info_files(path_domain, header_archive, version)
-                # # Nouveau fichier concatene, on met a jour la version courante
-                # # info_version = {'version': version, 'date': int(datetime.datetime.now(datetime.UTC).timestamp())}
-                # fin_backup_secs = math.floor(header_archive['fin_backup'] / 1000)
-                # info_version = {'version': version, 'date': fin_backup_secs}
-                # path_fichier_info = pathlib.Path(path_version, 'info.json')
-                # with open(path_fichier_info, 'wt') as fichier:
-                #     await asyncio.to_thread(json.dump, info_version, fichier)
-                #
-                # # Remplacer le fichier courant.json
-                # path_fichier_courant = pathlib.Path(path_domain, 'courant.json')
-                # path_fichier_courant.unlink(missing_ok=True)
-                # with open(path_fichier_info, 'rb') as src:
-                #     content = await asyncio.to_thread(src.read)
-                # with open(path_fichier_courant, 'wb') as output:
-                #     await asyncio.to_thread(output.write, content)
         finally:
             # Cleanup
-            # await asyncio.to_thread(path_file_work.unlink, missing_ok=True)
-            path_file_work.unlink(missing_ok=True)
+            await asyncio.to_thread(path_file_work.unlink, missing_ok=True)
+            # path_file_work.unlink(missing_ok=True)
 
         return web.HTTPOk()
 
@@ -165,18 +159,18 @@ class HostingBackupFileHandler:
         info_version = {'version': version, 'date': fin_backup_secs}
         path_fichier_info = pathlib.Path(path_version, 'info.json')
         with open(path_fichier_info, 'wt') as fichier_info:
-            # await asyncio.to_thread(json.dump, info_version, fichier_info)
-            json.dump(info_version, fichier_info)
+            await asyncio.to_thread(json.dump, info_version, fichier_info)
+            # json.dump(info_version, fichier_info)
 
         # Remplacer le fichier courant.json
         path_fichier_courant = pathlib.Path(path_domain, 'courant.json')
         path_fichier_courant.unlink(missing_ok=True)
         with open(path_fichier_info, 'rb') as src:
-            # content = await asyncio.to_thread(src.read)
-            content = src.read()
+            content = await asyncio.to_thread(src.read)
+            # content = src.read()
         with open(path_fichier_courant, 'wb') as output:
-            # await asyncio.to_thread(output.write, content)
-            output.write(content)
+            await asyncio.to_thread(output.write, content)
+            # output.write(content)
 
     async def get_backup_v2_domain_list(self, request: web.Request, cookie: Cookie) -> Union[web.Response, web.StreamResponse]:
         # This is a read-write/admin level function. Ensure proper roles/security level

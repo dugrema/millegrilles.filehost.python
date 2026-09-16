@@ -12,6 +12,7 @@ from aiohttp import ClientSession
 from ssl import SSLContext
 from typing import Optional
 
+from millegrilles_filehost.HostingBackupFileHandler import VERSION_FINAL
 from millegrilles_messages.messages.Hachage import Hacheur
 
 LOGGER = logging.getLogger(__name__)
@@ -371,7 +372,8 @@ def maintain_backup_versions(dir_files: pathlib.Path):
         for domain_dir in path_backup.iterdir():
             path_info = pathlib.Path(domain_dir, 'courant.json')
 
-            skip_versions: set[str] = set()
+            # Make a list of versions to skip - Always skip "final" directory and current directory.
+            skip_versions: set[str] = {VERSION_FINAL}
 
             try:
                 with open(path_info, 'rt') as fichier:
