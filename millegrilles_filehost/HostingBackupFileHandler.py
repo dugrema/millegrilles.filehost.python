@@ -8,6 +8,7 @@ import math
 from aiohttp import web
 from typing import Union
 
+from millegrilles_filehost.Constants import VERSION_FINAL
 from millegrilles_filehost.HostingFileHandler import stream_file_response
 from millegrilles_messages.messages import Constantes
 from millegrilles_filehost.BackupV2 import lire_header_archive_backup, get_backup_v2_domaines, extraire_headers
@@ -18,8 +19,6 @@ from millegrilles_messages.utils.TarStream import stream_path_to_tar_async
 
 CONST_BACKUP_ROTATION_INTERVAL = 3_600 * 24     # Once a day
 CONST_ROLE_FILECONTROLER = 'filecontroler'
-
-VERSION_FINAL = 'final'  # Special version - Final is for finalized archives, it is a folder and a type of archive
 
 
 class HostingBackupFileHandler:

@@ -12,7 +12,7 @@ from aiohttp import ClientSession
 from ssl import SSLContext
 from typing import Optional
 
-from millegrilles_filehost.HostingBackupFileHandler import VERSION_FINAL
+from millegrilles_filehost.Constants import VERSION_FINAL
 from millegrilles_messages.messages.Hachage import Hacheur
 
 LOGGER = logging.getLogger(__name__)
