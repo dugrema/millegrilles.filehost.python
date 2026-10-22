@@ -2,8 +2,8 @@ pipeline {
     agent { label 'x86_64' }
 
     parameters {
-        string(defaultValue: 'fix20260720', name: 'BRANCH')
-        string(defaultValue: '2026.3', name: 'VERSION')
+        string(defaultValue: 'master', name: 'BRANCH')
+        string(defaultValue: '2026.7', name: 'VERSION')
         string(defaultValue: 'jenkins-maple', name: 'CREDENTIALS_ID')
         string(defaultValue: 'ssh://git.maple.maceroc.com/git/millegrilles.filehost.python', name: 'GIT_URL')
         string(defaultValue: 'registry.millegrilles.com:5000/millegrilles/filehost_python', name: 'DOCKER_IMAGE')
