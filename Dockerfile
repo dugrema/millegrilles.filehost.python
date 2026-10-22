@@ -1,5 +1,11 @@
 FROM registry.millegrilles.com/millegrilles/messages_python:2026.4.12 AS stage1
 
+ARG PIP_INDEX_URL=https://pypi.org/simple/
+ARG PIP_TRUSTED_HOST=pypi.org
+
+ENV PIP_INDEX_URL=$PIP_INDEX_URL \
+    PIP_TRUSTED_HOST=$PIP_TRUSTED_HOST
+
 # Pour offline build
 #ENV PIP_FIND_LINKS=$BUILD_FOLDER/pip \
 #    PIP_RETRIES=0 \
