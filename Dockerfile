@@ -1,4 +1,4 @@
-FROM registry.millegrilles.com/millegrilles/messages_python:2026.7.18 AS stage1
+FROM nexus.maple.maceroc.com/millegrilles/messages_python:2026.7.29 AS stage1
 
 ARG PIP_INDEX_URL=https://pypi.org/simple/
 ARG PIP_TRUSTED_HOST=pypi.org
@@ -19,7 +19,7 @@ RUN pip3 install --no-cache-dir -r $BUILD_FOLDER/requirements.txt && \
 
 FROM stage1
 
-ARG VBUILD=2025.4.0
+ARG VBUILD=2026.7.0
 
 ENV WEB_KEY=/run/secrets/key_cert.pem \
     WEB_PORT=1443
